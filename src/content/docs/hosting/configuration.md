@@ -1,360 +1,243 @@
 ---
-title: Configuration
-description: Every server.toml key with section, type, default and NODE_* variable; precedence, the file rewrite, provider variables and command-line flags.
+title: Server settings
+description: How server.toml works, environment variables, command-line options, and every server setting with its default.
 ---
 
-The server reads one file, `server.toml`, from the folder it is started in (or the path given
-with `--config=`). If the file does not exist at start, the server writes it with every key at
-its default and a comment that explains it, then runs on those defaults. Settings are read once
-at start: edit the file, then restart.
+Every server setting lives in one file, `server.toml`, in the server's working directory. This page
+starts with how the file behaves, then the settings people change most, and ends with
+[every setting](#every-setting), table by table.
 
-Every key can also be set with an environment variable named `NODE_…`. That is how the Docker
-image is configured, and the right place for the host secret on any machine where the config
-file gets copied around.
+## How the file works
 
-## Precedence
-
-From strongest to weakest:
-
-1. `--port=` on the command line (the port only).
-2. The environment variable, when it is set and not empty.
-3. The value in `server.toml`.
-4. The built-in default.
-
-Details that matter when a setting does not take effect:
-
-- A boolean variable accepts `true`, `false`, `1` and `0` in any case. Any other value is
-  ignored with `Environment variable NODE_DEBUG has non-boolean value 'yes', ignoring it (accepted: true/false/1/0)`,
-  and the file decides.
-- An integer variable must be a plain number; text is read as `0` **without a warning**.
-  `NODE_MAX_PLAYERS=abc` therefore gives a server with zero slots - the banner says
-  `players 0 max` and every join is refused with `Server full!`. Check the banner after changing
-  a numeric variable.
-- A key with the wrong type in the file (`Port = "30814"`, with quotes) is reported as
-  `Value 'General.Port' has unexpected type, expected type 'integer'`, and the default is used.
-- A key missing from the file takes its default silently. That is how a file written by an
-  older version keeps working - and also what happens to a **misspelt** key: `MaxPlayer = 16`
-  is not a key the server knows, so it is dropped at the next rewrite (below) and `MaxPlayers`
-  silently stays `8`. No log line reports it; the check is to open the rewritten file and see
-  whether your value is still there.
-- A file the TOML parser rejects stops the server: `Error parsing config file value: …`,
-  `Closing in 10 seconds`, exit code 1. The line names the file and the line number and says in
-  plain words what is wrong - `the table [Directory] appears twice. Put the keys into the
-  existing [Directory] table …` for a `[Directory]` block pasted under the generated one,
-  `the key Name is given twice. Keep one of the two lines.` for a repeated key, and for anything
-  else the parser's reason plus `the line reads …` - and that the file has not been changed.
-  (Before 1.2.1 the server repeated the parser's own text, such as
-  `toml::insert_value: table ("Directory") already exists`.)
-
-## The file is rewritten
-
-After every successful read of the file (at start, before anything else) the server writes
-`server.toml` back: every key it knows, with its own comments. Consequences:
-
-- Comments you added are lost, and keys the server does not know are dropped - a misspelt key
-  included, see above. Keep notes elsewhere.
-- Values set through the environment are not written into the file. The file keeps what it said
-  before; a key the file did not mention gets its default, not the value from the environment.
-  A one-run override never becomes permanent.
-- Keys added by a new version appear with their defaults after the first start (see
-  [Updating](/hosting/updating/)).
-- The server writes the sections and the keys in an order of its own, which is not the order of
-  the [reference table](#reference) below or of the [example](#example) at the end of this page;
-  the order carries no meaning. The header comment lists every `NODE_*` variable and says to
-  fill in the existing `[Directory]` table rather than paste a second one; the comment above
-  `[Directory] Url` names `https://api.nodemp.com`. (A file written by 1.2.0 or older carries an
-  older header: it omits `NODE_INTEGRITY_DIR`, which is honoured all the same, and its `Url`
-  comment gives a wrong example address; the next start rewrites the comments.)
-
-The rewrite is skipped when `NODE_PROVIDER_DISABLE_CONFIG` is set (see
-[Provider variables](/hosting/command-line/#provider-variables)).
-
-## Reference
-
-Strings are quoted in TOML (`Name = "My server"`); integers and booleans are not
-(`Port = 30814`, `Debug = false`).
-
-| Section | Key | Type | Default | Environment |
-|---|---|---|---|---|
-| `[General]` | `Debug` | bool | `false` | `NODE_DEBUG` |
-| `[General]` | `IP` | string | `"::"` | `NODE_IP` |
-| `[General]` | `Port` | int | `30814` | `NODE_PORT` |
-| `[General]` | `Name` | string | `"Node Server"` | `NODE_NAME` |
-| `[General]` | `MaxCars` | int | `1` | `NODE_MAX_CARS` |
-| `[General]` | `MaxPlayers` | int | `8` | `NODE_MAX_PLAYERS` |
-| `[General]` | `Map` | string | `"/levels/gridmap_v2/info.json"` | `NODE_MAP` |
-| `[General]` | `VerifyGame` | string | `"size"` | `NODE_VERIFY_GAME` |
-| `[General]` | `IntegrityDir` | string | `"integrity"` | `NODE_INTEGRITY_DIR` |
-| `[Resources]` | `Obfuscate` | bool | `true` | `NODE_OBFUSCATE` |
-| `[Content]` | `Folder` | string | `"content"` | `NODE_CONTENT_FOLDER` |
-| `[Content]` | `Encrypt` | bool | `false` | `NODE_CONTENT_ENCRYPT` |
-| `[Network]` | `TlsCert` | string | `"node_cert.pem"` | `NODE_TLS_CERT` |
-| `[Network]` | `TlsKey` | string | `"node_key.pem"` | `NODE_TLS_KEY` |
-| `[Network]` | `StateRelayRadius` | int | `0` | `NODE_STATE_RELAY_RADIUS` |
-| `[Network]` | `LagGraceSec` | int | `8` | `NODE_NETWORK_LAG_GRACE_SEC` |
-| `[Network]` | `AuthTakeoverSec` | int | `10` | `NODE_NETWORK_AUTH_TAKEOVER_SEC` |
-| `[Network]` | `AuthReleaseSec` | int | `30` | `NODE_NETWORK_AUTH_RELEASE_SEC` |
-| `[Network]` | `DisconnectSec` | int | `30` | `NODE_NETWORK_DISCONNECT_SEC` |
-| `[Chat]` | `MaxLength` | int | `256` | `NODE_CHAT_MAX_LENGTH` |
-| `[Chat]` | `RatePerSec` | int | `2` | `NODE_CHAT_RATE_PER_SEC` |
-| `[Chat]` | `Burst` | int | `5` | `NODE_CHAT_BURST` |
-| `[Chat]` | `Log` | bool | `true` | `NODE_CHAT_LOG` |
-| `[Experimental]` | `NodeGrab` | bool | `false` | `NODE_EXPERIMENTAL_NODEGRAB` |
-| `[Directory]` | `Url` | string | `""` | `NODE_DIRECTORY_URL` |
-| `[Directory]` | `HostId` | string | `""` | `NODE_DIRECTORY_HOST_ID` |
-| `[Directory]` | `HostSecret` | string | `""` | `NODE_DIRECTORY_HOST_SECRET` |
-| `[Directory]` | `Fingerprint` | string | `""` | `NODE_DIRECTORY_FINGERPRINT` |
-| `[Directory]` | `CaFile` | string | `""` | `NODE_DIRECTORY_CA_FILE` |
-| `[Directory]` | `Description` | string | `""` | `NODE_DIRECTORY_DESCRIPTION` |
-| `[Directory]` | `Mode` | string | `"freeroam"` | `NODE_DIRECTORY_MODE` |
-| `[Directory]` | `Tags` | string | `""` | `NODE_DIRECTORY_TAGS` |
-| `[Directory]` | `Public` | bool | `true` | `NODE_DIRECTORY_PUBLIC` |
-| `[Directory]` | `TestDrive` | bool | `true` | `NODE_DIRECTORY_TEST_DRIVE` |
-| `[Directory]` | `RedeemFailOpen` | bool | `false` | `NODE_DIRECTORY_REDEEM_FAIL_OPEN` |
-| `[Directory]` | `AllowInsecure` | bool | `false` | `NODE_DIRECTORY_ALLOW_INSECURE` |
-| `[Http]` | `CaFile` | string | `""` | `NODE_HTTP_CA_FILE` |
-| `[Http]` | `Insecure` | bool | `false` | `NODE_HTTP_INSECURE` |
-| `[Http]` | `AllowPrivateNetworks` | bool | `false` | `NODE_HTTP_ALLOW_PRIVATE_NETWORKS` |
-
-The four `[Network]` timers and the `[Chat]` section come with the next server release: server 1.5.0 does
-not know them and drops them when it rewrites the file.
-
-### `[General]`
-
-- `Debug` — extra debug and trace lines in the log, and millisecond timestamps. Every line also
-  gains a column with the name of the thread that wrote it, between the tag and the message
-  (`Res    › PluginFramework hello · …`, `Core › Main(Waiting) server is ready`), so a log parser
-  written for the normal `time  tag › message` shape needs to allow for it.
-- `IP` — the address to listen on. `::` is every interface, IPv6 and IPv4; `0.0.0.0` is every
-  IPv4 interface; a single address picks one interface. Not related to your public address.
-- `Port` — the one port, used for TCP and UDP.
-- `Name` — the name players see in the list and in the launcher.
-- `MaxCars` — vehicles each player may have at once.
-- `MaxPlayers` — players at once; the list shows it as the capacity.
-- `Map` — the level sent to joining players, as the path of its `info.json` inside the game, for
-  example `/levels/west_coast_usa/info.json`. A level from a mod works when its zip is in
-  `content/`.
-- `VerifyGame` — how much of a joining player's BeamNG install is compared with the game's own
-  file list before the join. `off`: the launcher still runs the `size` check, and the server
-  only logs a mismatch instead of refusing. `size`: every file's length plus a sweep for files
-  added under the game's `content/` folder, about two seconds. `scripts`: also hashes the game's
-  `lua/` and `ui/` trees, about ten seconds; this is what catches an edited script. `full`:
-  hashes the whole install, about 50 GB, minutes — an audit, not a pre-join check. A player
-  whose install does not match is refused with
-  `Your BeamNG install does not match the game's own file list (3 files differ). Verify the game's files in Steam and try again.`
-  `strict`: the check compares against a **reference manifest** of a clean install that you
-  generate and put into `IntegrityDir`, not against the game's own file list — every archive's
-  table of contents, the whole game folder and the game's user folder, with `lua/`, `ui/`, the
-  binaries and the root executables hashed with SHA-256. Generating the manifest needs a Windows
-  PC with a clean BeamNG.drive install of the version your players run, whichever platform the
-  server runs on. It needs exactly one `.manifest` in that
-  folder; with none, or with several, every join is refused with a text that tells the player to
-  ask the host. A mismatch is refused with
-  `Game files do not match this server's reference (3 problems). …`. What it checks, how to
-  generate the manifest and what players see is on
-  [Strict verification](/hosting/strict-verification/). Any other value is logged as an error
-  and treated as `scripts`.
-- `IntegrityDir` — the folder with the `*.manifest` reference files that `VerifyGame = "strict"`
-  checks against, relative to the working directory (Docker: `/data/integrity/`). Every
-  `.manifest` in it is loaded at start, whatever `VerifyGame` says, so a server on `scripts`
-  can still run a strict audit on demand through `player:verify("strict")`; for
-  `VerifyGame = "strict"` the folder must hold exactly one file. Written by
-  `Node-Server --gen-integrity <gamedir>`, which puts the file there by default (see
-  [Command line](/hosting/command-line/#command-line)).
-
-### `[Resources]`
-
-- `Obfuscate` — obfuscate the client Lua that resources stream to players. `false` ships plain
-  source, for debugging. Details in [Resources and content](/hosting/resources/).
-
-### `[Content]`
-
-- `Folder` — the folder with client mod zips, relative to the working directory.
-- `Encrypt` — deliver the zips ChaCha20-encrypted with a key made at each start; the launcher
-  then keeps only encrypted copies in its cache.
-
-### `[Network]`
-
-- `TlsCert`, `TlsKey` — the server's TLS certificate and private key, PEM. Relative paths
-  resolve next to the executable, not in the working directory. Missing files are generated at
-  start (self-signed, valid ten years). The certificate's SHA-256 fingerprint is what launchers
-  pin, so keep both files; [Updating](/hosting/updating/) explains why.
-- `StateRelayRadius` — distance-based relay of vehicle positions, in metres. `0` (the default)
-  relays every position update to every player. With a radius, players within half of it get
-  updates at full rate, players in the outer half at half rate, and nobody beyond it.
-  [How synchronization works](/framework/sync/) has the details.
-
-*Next server release; not in 1.5.0.* The four timers decide what happens when a player goes silent — a stalled VPN, a dropped Wi-Fi,
-a crashed game. They must keep `LagGraceSec < AuthTakeoverSec <= AuthReleaseSec <= DisconnectSec`
-(all in seconds, `LagGraceSec` at least 1); otherwise the server names the four values and refuses
-to start, leaving the file unchanged.
-
-- `LagGraceSec` — seconds without a single packet from a player before the player is reported as
-  lagging (`playerLagging` to plugins). Nothing is taken away yet: the seat, the cars and the
-  simulation stay with the player. A VPN that stalls for a few seconds should stay under this.
-- `AuthTakeoverSec` — seconds a driver's car may go without positions before **another** player who
-  claims the driver's seat gets it; the silent driver is put on foot.
-- `AuthReleaseSec` — seconds without positions before the server itself frees a silent driver's
-  seat and hands the car's simulation to another player.
-- `DisconnectSec` — seconds of silence before a player is disconnected. It is also how long a player
-  whose connection **broke** keeps the slot, the name and the cars: a launcher that reconnects
-  within this window resumes the session instead of joining again. Launchers give up after 600 s,
-  so a larger value only keeps a dead slot longer, and the server warns about it.
-
-### `[Chat]`
-
-*Next server release; not in 1.5.0, where chat is the `chat` example resource.* Chat is part of the
-server: the core relays every player's line, no resource needed.
-
-- `MaxLength` — the longest line in bytes (UTF-8, cut on a character boundary), from 16 to 2048.
-- `RatePerSec` — lines (and `/commands`) a player may send per second on average. A line over the
-  limit is not sent, and the player is told so; nobody is kicked for it.
-- `Burst` — how many lines a player may send at once before `RatePerSec` applies.
-- `Log` — write every chat line, and every line a resource or the limit refused, to the server log
-  under the `Chat` tag.
-
-### `[Experimental]`
-
-- `NodeGrab` — accept node-grabber requests over the wire. Off, the server drops them. On, every
-  grab still needs an explicit allow from a resource's `vehicleNodeGrabRequest` handler; the
-  `nodegrab-allow` example is the smallest one.
-
-### `[Directory]`
-
-Whether and how the server announces itself to the directory;
-[Registering your server](/hosting/registering/) covers the workflow.
-
-- `Url`, `HostId`, `HostSecret` — the directory, `https://api.nodemp.com`, and the server key
-  from your account. All three are needed: with one of them empty the server warns and is not
-  announced; with all three empty it is silent. The secret is a password — rotate it in your
-  account if it leaks.
-- `Fingerprint` — SHA-256 of the *directory's* TLS certificate as lowercase hex, for a directory
-  you run yourself with a self-signed certificate. Empty means the normal check: a certificate
-  signed by an authority the machine trusts that names the host. This is not your server's own
-  fingerprint. On Windows the machine's roots are the Windows certificate store plus the
-  `cacert.pem` shipped next to `Node-Server.exe`; on Linux the distribution's
-  ([Registering your server](/hosting/registering/#windows-the-directorys-certificate) has the
-  details and the history of the Windows build).
-- `CaFile` — path to a PEM bundle to verify the *directory's* certificate against **instead of**
-  the machine's trusted roots, for a directory you run yourself behind a private CA. Empty, the
-  default, is right for `api.nodemp.com`. A relative path resolves from the working directory. A
-  bundle that cannot be read is reported at start with
-  `[Directory] CaFile '…' could not be loaded (…): the directory's certificate cannot be verified and this server will not be listed until it can`.
-  Not to be confused with `[Http] CaFile`, which governs the requests resources make.
-- `Description` — one or two sentences under the server name in the list (cut at 500
-  characters).
-- `Mode` — one word shown as a column in the list: `freeroam`, `racing`, `roleplay`, …
-- `Tags` — up to eight comma-separated tags players can filter by, `"drift, no-crash, ru"`.
-- `Public` — `true` puts the server in the list. `false` still announces it, so players who have
-  the address see it as online, but it is not advertised.
-- `TestDrive` — whether players without an account may join. With a directory configured this
-  is enforced: a Test Drive ticket, or a join without a ticket, is refused with
-  `This server requires a NodeMP account: sign in to the launcher and join again` when it is
-  `false`.
-- `RedeemFailOpen` — what to do with a join whose ticket cannot be checked because the directory
-  is unreachable. `false` refuses it. `true` admits the player as an unverified guest under the
-  name the launcher asked for — only when `TestDrive` is also `true`. It matters only while the
-  directory is down.
-- `AllowInsecure` — allow a `Url` that starts with `http://`. Leave it off: the secret is sent
-  in every session request, and without TLS anyone on the path can read it. Only for a directory
-  of your own on a LAN or VPN.
-
-### There is no `[Database]`
-
-There was, up to and including release 1.2.1: the server carried a PostgreSQL pool of its own. It
-does not any more. A database is now the `db` module, configured in its own `modules/db.toml` beside the
-module, and it speaks PostgreSQL, SQLite and MySQL/MariaDB. A `[Database]` section left in
-`server.toml` is ignored, and the `NODE_DATABASE_*` variables do nothing - except
-`NODE_DATABASE_URL`, which the module still reads as the old name of `NODE_DB_URL`.
-[Database access](/plugins/database/) covers the module.
-
-### `[Http]`
-
-The HTTPS requests resources make with `node.http` (and native modules with `http_request`).
-Added in server 1.2.0.
-
-- `CaFile` — path to a PEM CA bundle. Empty, the default, keeps peer verification **off**, as it
-  always was: a resource can fetch a public feed from any host, and nothing protects a secret it
-  sends. Set, every `https://` request a plugin makes verifies the server certificate against
-  this bundle - and only this bundle, not the operating system's store - and the certificate's
-  name against the host; a request that fails verification reaches the resource as status `-1`
-  with the body `TLS handshake failed (peer verification against [Http] CaFile): …`. Plain
-  `http://` requests are unaffected. A bundle that cannot be read fails every `https://` request
-  with a message naming the file rather than verifying against nothing. A relative path is
-  resolved from the server's working directory; under Docker, mount the bundle and set
-  `NODE_HTTP_CA_FILE`. To verify against the public CAs, point it at the system bundle
-  (`/etc/ssl/certs/ca-certificates.crt` on Debian and Ubuntu); to verify a self-hosted service,
-  at its own CA (or, for a self-signed certificate, at the certificate itself).
-- `Insecure` — skip certificate verification altogether for `node.http` / `http_request`. Leave it
-  off: with it on, whoever sits between this machine and the host a resource calls can read what is
-  sent (webhook secrets, API keys) and answer as that host. It is for a host whose resources must
-  reach an internal host with a self-signed certificate that cannot go into `CaFile`, which is the
-  safer way; the server says so at warn level on every start while it is on.
-- `AllowPrivateNetworks` — whether `node.http` / `http_request` may connect to a non-public
-  address: loopback, link-local (including the cloud metadata endpoint `169.254.169.254`), the
-  private ranges and their IPv4-mapped IPv6 forms. `false`, the default, resolves the host name and
-  checks the address that would actually be connected to — on every redirect hop too — and refuses
-  a non-public one as status `-1` with the reason as the body, so a resource cannot probe the
-  network the server sits in. It does not apply to the `[Directory]` client, whose `Url` is this
-  file's setting rather than a resource's.
-
-## Example
-
-A `server.toml` with every key at its default (the comments the server writes are omitted):
+On the first start the server writes a short file with the two tables a host fills in: `[server]`
+and `[listing]`.
 
 ```toml
-[General]
-Debug = false
-IP = "::"
-Port = 30814
-Name = "Node Server"
-MaxCars = 1
-MaxPlayers = 8
-Map = "/levels/gridmap_v2/info.json"
-VerifyGame = "size"
-IntegrityDir = "integrity"
+# NodeMP server settings: https://docs.nodemp.com/hosting/configuration/
+# Environment variables (NODE_PORT, NODE_NAME, ...) win over this file.
 
-[Resources]
-Obfuscate = true
+[server]
+name = "Node Server"
+port = 30814
+max_players = 8
+cars_per_player = 1
+map = "/levels/gridmap_v2/info.json"
+mods = "content"  # folder of mod zips players download
 
-[Content]
-Folder = "content"
-Encrypt = false
-
-[Network]
-TlsCert = "node_cert.pem"
-TlsKey = "node_key.pem"
-StateRelayRadius = 0
-LagGraceSec = 8
-AuthTakeoverSec = 10
-AuthReleaseSec = 30
-DisconnectSec = 30
-
-[Chat]
-MaxLength = 256
-RatePerSec = 2
-Burst = 5
-Log = true
-
-[Experimental]
-NodeGrab = false
-
-[Directory]
-Url = ""
-HostId = ""
-HostSecret = ""
-Fingerprint = ""
-CaFile = ""
-Description = ""
-Mode = "freeroam"
-Tags = ""
-Public = true
-TestDrive = true
-RedeemFailOpen = false
-AllowInsecure = false
-
-[Http]
-CaFile = ""
-Insecure = false
-AllowPrivateNetworks = false
+[listing]
+url = ""  # "https://api.nodemp.com" to be listed in the launcher
+host_id = ""
+host_secret = ""  # or NODE_DIRECTORY_HOST_SECRET, out of this file
+description = ""
+mode = "freeroam"
+tags = ""
+preview = ""  # a JPEG or PNG; empty: the map's own
+public = true
+guests = true  # players without a NodeMP account
 ```
+
+- **Everything else you add yourself.** A setting that isn't in the file keeps its default. To
+  change one, write it into its table, and add the table if the file doesn't have it yet. The
+  names are in the tables [below](#every-setting).
+- **The server only reads your file.** It doesn't add or change anything in it, and it reads it at
+  start, so restart the server after a change.
+- **Mistakes are explained.** A value of the wrong type or out of range is replaced by the default,
+  with a warning in the log. A key the server doesn't know gets a warning with its name, which is
+  how a typo shows up. A table written twice stops the server from starting. Usually that's a
+  second `[listing]` pasted under the one already in the file: move its keys into the first one and
+  delete the second.
+- **Lists** (`connection_limit_exempt`, `masked_commands`) can be a comma-separated string or a TOML
+  list.
+- **A file from before 1.9.0** (`[General]`, `[Directory]` and the rest) is converted once, on the
+  first start of 1.9.0. The server writes it in the new layout with the same settings and keeps the
+  old one as `server.toml.old`. [Updating](/hosting/updating/#settings-since-190) lists the
+  names that changed.
+
+## What people change most
+
+**Name, map and slots**: `name`, `map`, `max_players` and `cars_per_player` in `[server]`.
+[Run a server](/hosting/quick-start/#name-map-and-slots) has an example.
+
+**The port**: `[server] port`, `30814` by default, the same for TCP and UDP. Leave `address` at
+`"::"`: the server then listens on every address, IPv4 and IPv6.
+
+**The game file check**: `[integrity] verify`.
+
+| Value | What is checked | How long the player waits |
+|---|---|---|
+| `"size"` | The size of every game file, and extra files in the game's `content/`. The default. | About 2 seconds. |
+| `"scripts"` | The same, plus checksums of the game's `lua/` and `ui/`. Catches edited scripts. | About 10 seconds. |
+| `"full"` | Checksums of the whole game, about 50 GB. An audit, not a check before every join. | Minutes. |
+| `"strict"` | The whole game folder, the contents of its archives and the user folder, against a clean install. | A few seconds. See [Strict file check](/hosting/strict-verification/). |
+| `"off"` | The server asks for nothing, but the launcher still checks `size`. | |
+
+**A place in the server list**: the `[listing]` table, and in it the links to your Discord, rules,
+site and voice chat. [Get listed](/hosting/registering/) explains how to fill it in.
+
+**Chat** is part of the server. `[chat] max_length`, `rate_per_sec` and `burst` keep it from being
+flooded: extra lines just aren't sent, and nobody is kicked for chatting.
+
+**Bad connections.** A player silent for `lag_grace_sec` seconds (8) shows as lagging. After
+`disconnect_sec` (30) they are dropped, and that's also how long the server waits for a broken
+connection to come back. For players on mobile internet or a VPN you can give them longer:
+
+```toml
+[network]
+disconnect_sec = 60
+```
+
+More than 600 seconds doesn't help: a launcher stops trying to come back after 600. The four
+timers must stay in order, or the server won't start:
+`lag_grace_sec < seat_takeover_sec <= seat_release_sec <= disconnect_sec`.
+
+## Environment variables
+
+Every setting has an environment variable of its own, named in the tables below. The variable wins
+over the file, and `--port` on the command line wins over both. Secrets such as `host_secret` belong
+in the environment: then they don't end up in a file that gets copied and sent around.
+
+A few variables aren't settings:
+
+| Variable | What it does |
+|---|---|
+| `NODE_LUA` | The Lua 5.1 the obfuscator runs on. Needed on Linux. |
+| `NODE_TOOLS_DIR` | Another place for the `tools/` folder. |
+| `NODE_PROVIDER_DISABLE_CONFIG` | `true` ignores `server.toml` and takes everything from the environment. The Docker image works this way. |
+| `NODE_PROVIDER_IP_ENV`, `NODE_PROVIDER_PORT_ENV` | For hosting panels: the name of the variable that carries the address and port the panel assigns. |
+| `NODE_HEARTBEAT_FILE` | A file the server keeps touching while it runs. Docker's health check reads it. |
+| `NODE_FORCE_ANSI` | `1` keeps colours when the output isn't a terminal. |
+
+## Command line
+
+| Option | What it does |
+|---|---|
+| `--config=FILE` | Which settings file to read. By default, `server.toml` in the working directory. |
+| `--port=N` | The TCP and UDP port. Wins over the file and the environment. |
+| `--working-directory=DIR` | The working directory: every relative path starts there. |
+| `--version` | Print the version and exit. |
+| `--help` | Print the help and exit. |
+| `--gen-integrity GAMEDIR` | Make the reference manifest for the strict check ([more](/hosting/strict-verification/#make-the-manifest)). |
+| `--bans list`, `--bans remove …` | Show or lift bans while the server is stopped ([more](/hosting/administration/#bans)). |
+| `--obf-selftest` | Check that the obfuscator works. |
+
+A value may also follow its option after a space: `--port 30815`. To run two servers on one
+machine, give each its own working directory and port:
+
+```bash
+./Node-Server --working-directory=/srv/nodemp-2 --port=30815
+```
+
+## Every setting
+
+In the order the server declares them. Strings are in quotes, as in the file.
+
+### `[server]`
+
+| Section | Key | Type | Default | Environment | What it does |
+|---|---|---|---|---|---|
+| `[server]` | `name` | string | `"Node Server"` | `NODE_NAME` | The server name in the list and in the game. |
+| `[server]` | `port` | int | `30814` | `NODE_PORT` | The TCP and UDP port players connect to. |
+| `[server]` | `max_players` | int | `8` | `NODE_MAX_PLAYERS` | How many players may be on at once. |
+| `[server]` | `cars_per_player` | int | `1` | `NODE_MAX_CARS` | How many cars one player may have at once. |
+| `[server]` | `map` | string | `"/levels/gridmap_v2/info.json"` | `NODE_MAP` | The map, as the path to its `info.json`. |
+| `[server]` | `mods` | string | `"content"` | `NODE_CONTENT_FOLDER` | The folder with the mod zips players download. |
+| `[server]` | `address` | string | `"::"` | `NODE_IP` | The address to listen on. `"::"` is every address, IPv4 and IPv6. Not your public address. |
+| `[server]` | `console` | bool | `false` | `NODE_CONSOLE` | Read console commands from standard input even without a terminal. |
+
+### `[listing]`
+
+| Section | Key | Type | Default | Environment | What it does |
+|---|---|---|---|---|---|
+| `[listing]` | `url` | string | `""` | `NODE_DIRECTORY_URL` | Where to announce the server: `"https://api.nodemp.com"`. Empty: not listed. |
+| `[listing]` | `host_id` | string | `""` | `NODE_DIRECTORY_HOST_ID` | The public half of the server key. |
+| `[listing]` | `host_secret` | string | `""` | `NODE_DIRECTORY_HOST_SECRET` | The secret half. Keep it like a password. |
+| `[listing]` | `description` | string | `""` | `NODE_DIRECTORY_DESCRIPTION` | One or two sentences under the name in the list. |
+| `[listing]` | `mode` | string | `"freeroam"` | `NODE_DIRECTORY_MODE` | The kind of server, shown as a column: `freeroam`, `racing`, `roleplay` and so on. |
+| `[listing]` | `tags` | string | `""` | `NODE_DIRECTORY_TAGS` | Up to eight comma-separated tags players can filter by. |
+| `[listing]` | `preview` | string | `""` | `NODE_DIRECTORY_PREVIEW` | A JPEG or PNG for the list, at most 2 MB. Empty: the map's own picture. |
+| `[listing]` | `public` | bool | `true` | `NODE_DIRECTORY_PUBLIC` | `false` keeps the server out of the public list. |
+| `[listing]` | `guests` | bool | `true` | `NODE_DIRECTORY_TEST_DRIVE` | Let players without an account in. |
+| `[listing]` | `fingerprint` | string | `""` | `NODE_DIRECTORY_FINGERPRINT` | Only for a server list you run yourself. Leave empty. |
+| `[listing]` | `ca_file` | string | `""` | `NODE_DIRECTORY_CA_FILE` | Only for a server list you run yourself. Leave empty. |
+| `[listing]` | `admit_when_down` | bool | `false` | `NODE_DIRECTORY_REDEEM_FAIL_OPEN` | While NodeMP can't be reached: `false` refuses joins, `true` lets players in as unverified guests. |
+| `[listing]` | `allow_http` | bool | `false` | `NODE_DIRECTORY_ALLOW_INSECURE` | Allow an `http://` address in `url`. Leave off. |
+| `[listing]` | `discord` | string | `""` | `NODE_DIRECTORY_LINK_DISCORD` | An invite to your Discord: `https://discord.gg/…` or `https://discord.com/invite/…`. |
+| `[listing]` | `rules` | string | `""` | `NODE_DIRECTORY_LINK_RULES` | A page with the server's rules. |
+| `[listing]` | `site` | string | `""` | `NODE_DIRECTORY_LINK_SITE` | The server's website. |
+| `[listing]` | `donate` | string | `""` | `NODE_DIRECTORY_LINK_DONATE` | A page where players can support the server. |
+| `[listing]` | `voice` | string | `""` | `NODE_DIRECTORY_LINK_VOICE` | The voice chat: `https://…`, `mumble://…` or `ts3server://…`. |
+
+### `[integrity]`
+
+| Section | Key | Type | Default | Environment | What it does |
+|---|---|---|---|---|---|
+| `[integrity]` | `verify` | string | `"size"` | `NODE_VERIFY_GAME` | How closely a player's game files are checked: `off`, `size`, `scripts`, `full` or `strict`. |
+| `[integrity]` | `manifests` | string | `"integrity"` | `NODE_INTEGRITY_DIR` | The folder with the reference manifests for `strict`. |
+
+### `[network]`
+
+| Section | Key | Type | Default | Environment | What it does |
+|---|---|---|---|---|---|
+| `[network]` | `tls_cert` | string | `"node_cert.pem"` | `NODE_TLS_CERT` | The server's TLS certificate, made on the first start. A relative path starts at the executable's folder. |
+| `[network]` | `tls_key` | string | `"node_key.pem"` | `NODE_TLS_KEY` | The certificate's private key. |
+| `[network]` | `relay_radius` | int | `0` | `NODE_STATE_RELAY_RADIUS` | Send a car's positions only to players within this many metres. `0`: to everyone. |
+| `[network]` | `lag_grace_sec` | int | `8` | `NODE_NETWORK_LAG_GRACE_SEC` | Seconds of silence before a player shows as lagging. |
+| `[network]` | `seat_takeover_sec` | int | `10` | `NODE_NETWORK_AUTH_TAKEOVER_SEC` | Seconds a silent driver keeps the seat before another player can take it. |
+| `[network]` | `seat_release_sec` | int | `30` | `NODE_NETWORK_AUTH_RELEASE_SEC` | Seconds of silence before the server frees the driver's seat and hands the car on. |
+| `[network]` | `disconnect_sec` | int | `30` | `NODE_NETWORK_DISCONNECT_SEC` | Seconds of silence before the player is dropped. Also how long a broken connection may take to come back. |
+| `[network]` | `send_queue_budget_mb` | int | `256` | `NODE_NETWORK_SEND_QUEUE_BUDGET_MB` | Memory all outgoing queues may take together. `0`: no shared limit. |
+| `[network]` | `max_connections_per_ip` | int | `32` | `NODE_NETWORK_MAX_CONNECTIONS_PER_IP` | Connections from one address that may be joining at the same time. |
+| `[network]` | `max_connections` | int | `256` | `NODE_NETWORK_MAX_CONNECTIONS` | The same for all addresses together. |
+| `[network]` | `connection_limit_exempt` | string | `"127.0.0.0/8, ::1/128, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, fd00::/8"` | `NODE_NETWORK_CONNECTION_LIMIT_EXEMPT` | Address ranges without the per-address limit. `""` or `"none"`: no exceptions. |
+| `[network]` | `handshake_timeout_sec` | int | `20` | `NODE_NETWORK_HANDSHAKE_TIMEOUT_SEC` | Seconds a new connection gets for the handshake and the first steps of joining. |
+| `[network]` | `download_stall_sec` | int | `60` | `NODE_NETWORK_DOWNLOAD_STALL_SEC` | A mod download ends after this many seconds without progress. A slow one is never cut off. |
+
+### `[chat]`
+
+| Section | Key | Type | Default | Environment | What it does |
+|---|---|---|---|---|---|
+| `[chat]` | `max_length` | int | `256` | `NODE_CHAT_MAX_LENGTH` | The longest chat line, in bytes, from 16 to 2048. |
+| `[chat]` | `rate_per_sec` | int | `2` | `NODE_CHAT_RATE_PER_SEC` | Lines a player may send per second on average. Extra lines aren't sent; nobody is kicked. |
+| `[chat]` | `burst` | int | `5` | `NODE_CHAT_BURST` | Lines a player may send in a row before the rate applies. |
+| `[chat]` | `log` | bool | `true` | `NODE_CHAT_LOG_TO_CONSOLE` | Show the chat in the console and in the log. |
+| `[chat]` | `masked_commands` | string | `"login, register, reg, password, passwd, pass, pw, auth, changepassword, setpassword, 2fa, totp, otp, pin, token, apikey"` | `NODE_CHAT_LOG_HIDDEN_COMMANDS` | Commands whose arguments are logged as `***`. `""`: log every command as typed. |
+
+### `[logs]`
+
+| Section | Key | Type | Default | Environment | What it does |
+|---|---|---|---|---|---|
+| `[logs]` | `debug` | bool | `false` | `NODE_DEBUG` | Debug logging from every part of the server. |
+| `[logs]` | `max_size_mb` | int | `50` | `NODE_LOG_MAX_SIZE_MB` | Start a new `server.log` once it grows past this many MB, and at every start. `0`: only at start. |
+| `[logs]` | `keep` | int | `5` | `NODE_LOG_KEEP` | How many old logs to keep. |
+| `[logs]` | `date` | bool | `false` | `NODE_LOG_DATE` | Put the date before the time on every line. |
+| `[logs]` | `netstats_sec` | int | `15` | `NODE_NETWORK_STATS_INTERVAL_SEC` | How often to log a `netstats` line for each player. `0`: only when they leave. |
+
+### `[sync]`
+
+| Section | Key | Type | Default | Environment | What it does |
+|---|---|---|---|---|---|
+| `[sync]` | `variant` | string | `""` | `NODE_SYNC_VARIANT` | For sync tests: one variant, `"A"` to `"D"`, for everyone. Empty: each player's own. |
+| `[sync]` | `hold_tight` | string | `""` | `NODE_SYNC_HOLD_TIGHT` | `"on"` or `"off"` sets *Hold other cars tightly* for everyone. |
+| `[sync]` | `steer_lead` | string | `""` | `NODE_SYNC_STEER_LEAD` | `"on"` or `"off"` sets *Steering look-ahead* for everyone. |
+| `[sync]` | `verbose_trace` | string | `""` | `NODE_SYNC_VERBOSE_TRACE` | `"on"` turns on everyone's most detailed sync logs. |
+| `[sync]` | `trace_rate` | int | `0` | `NODE_SYNC_TRACE_RATE` | The rate of those logs for everyone: `10`, `20` or `60` Hz. `0`: each player's own. |
+
+### `[http]`
+
+| Section | Key | Type | Default | Environment | What it does |
+|---|---|---|---|---|---|
+| `[http]` | `ca_file` | string | `""` | `NODE_HTTP_CA_FILE` | A CA bundle for plugins' HTTPS requests instead of the system's. |
+| `[http]` | `insecure` | bool | `false` | `NODE_HTTP_INSECURE` | Skip certificate checks in plugins' HTTPS requests. Leave off. |
+| `[http]` | `allow_private_networks` | bool | `false` | `NODE_HTTP_ALLOW_PRIVATE_NETWORKS` | Let plugins' HTTP requests reach local and private addresses. |
+
+### `[resources]`
+
+| Section | Key | Type | Default | Environment | What it does |
+|---|---|---|---|---|---|
+| `[resources]` | `obfuscate` | bool | `true` | `NODE_OBFUSCATE` | Obfuscate the client scripts of resources. `false` sends them as they are. |
+
+### `[experimental]`
+
+| Section | Key | Type | Default | Environment | What it does |
+|---|---|---|---|---|---|
+| `[experimental]` | `node_grab` | bool | `false` | `NODE_EXPERIMENTAL_NODEGRAB` | Allow the experimental node grabber checked by the server. Each grab still needs a plugin that allows it. |

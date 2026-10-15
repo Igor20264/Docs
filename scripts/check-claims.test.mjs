@@ -10,7 +10,7 @@ import {
   W, cppTemplates, parseConfigCpp, parseSettingsCpp, configReference, parseServerMain, parseWireTaxonomy,
   parseApiEvents, launcherExitCodes, tsTemplates, rustTemplates, luaTemplates, versionFrom, envNames, snake, pascal,
 } from './lib/claims/sources.mjs';
-import { checkConfigTable, checkConfigExample, checkSectionClaims, checkConfigMentions } from './lib/claims/config.mjs';
+import { checkConfigTable, checkConfigExample, checkConfigSnippets, checkSectionClaims, checkConfigMentions } from './lib/claims/config.mjs';
 import { checkHelpBlock, checkFlagMentions } from './lib/claims/cli.mjs';
 import {
   compatible, docTemplate, matchesWhole, matchesPrefix, cellMessages, collectServerTexts, checkKickTexts, checkShown,
@@ -118,6 +118,30 @@ test('config: Config.cpp + Settings.cpp -> ordered reference with type, default 
   assert.equal(parseConfigCpp(config).reads.length, 3);
 });
 
+test('config reference from the 1.6 shape: one Entries table, types from the Defaults array', () => {
+  const config = `const ConfigEntry Entries[] = {
+    { .Table = "General", .Name = "Debug", .Key = Settings::Key::General_Debug, .Env = "NODE_DEBUG", .Comment = "x" },
+    { .Table = "General", .Name = "Port", .Key = Settings::Key::General_Port, .Env = "NODE_PORT", .Range = { 1, 65535 }, .ProviderEnv = "NODE_PROVIDER_PORT_ENV" },
+    { .Table = "Chat", .Name = "LogToConsole", .Key = Settings::Key::Chat_Log, .Env = "NODE_CHAT_LOG_TO_CONSOLE", .OldName = "Log", .OldEnv = "NODE_CHAT_LOG" },
+};`;
+  const settings = `Settings::Settings() {
+    const Default Defaults[] = {
+        { General_Port, 30814 },
+        // a comment { not_a_key, 1 },
+        { General_Debug, false },
+        { Chat_Log, true },
+    };
+    for (const auto& [K, V] : Defaults) { (void)K; }
+}`;
+  const ref = configReference(config, settings);
+  assert.deepEqual(ref.sections, ['General', 'Chat']);
+  assert.deepEqual(ref.entries, [
+    { section: 'General', key: 'Debug', type: 'bool', default: 'false', env: 'NODE_DEBUG' },
+    { section: 'General', key: 'Port', type: 'int', default: '30814', env: 'NODE_PORT' },
+    { section: 'Chat', key: 'LogToConsole', type: 'bool', default: 'true', env: 'NODE_CHAT_LOG_TO_CONSOLE' },
+  ]);
+});
+
 const REF = {
   sections: ['General', 'Database'],
   entries: [
@@ -142,6 +166,14 @@ test('config table: clean table has no findings; wrong default/env/type, extra, 
   assert.ok(f.every((x) => x.locale === 'ru' && x.page === 'ru/hosting/configuration.md'));
 });
 
+test('config table: one table per section reads as one reference', () => {
+  const head = '| Section | Key | Type | Default | Environment |\n|---|---|---|---|---|\n';
+  const split = page(`### General\n\n${head}| \`[General]\` | \`Debug\` | bool | \`false\` | \`NODE_DEBUG\` |\n| \`[General]\` | \`Name\` | string | \`"Node Server"\` | \`NODE_NAME\` |\n\n### Database\n\n${head}| \`[Database]\` | \`Pool\` | int | \`4\` | \`NODE_DATABASE_POOL\` |\n`);
+  assert.deepEqual(checkConfigTable(split, REF), []);
+  const short = page(`${head}| \`[General]\` | \`Debug\` | bool | \`false\` | \`NODE_DEBUG\` |\n| \`[General]\` | \`Name\` | string | \`"Node Server"\` | \`NODE_NAME\` |\n`);
+  assert.ok(checkConfigTable(short, REF).some((x) => x.claim === '[Database] Pool' && x.actual === 'missing'));
+});
+
 test('config example, section-count claims and mentions', () => {
   const ex = page('```toml\n[General]\nDebug = false\nName = "Node Server"\nPort = 1\n\n[Database]\nPool = 5\n```\n');
   const f = checkConfigExample(ex, REF);
@@ -154,6 +186,33 @@ test('config example, section-count claims and mentions', () => {
   assert.equal(s.filter((x) => x.line === 3).length, 1);
   const m = checkConfigMentions(page('Set `[General] Nmae` and `NODE_NAME`, `NODE_FOO`, `NODE_DIRECTORY_*`; `[filesystem] UserPath` is BeamNG\'s.', 'hosting/running.md'), REF, new Set(['NODE_NAME']));
   assert.deepEqual(m.map((x) => [x.check, x.claim]), [['config.mention', '[General] Nmae'], ['config.env', 'NODE_FOO']]);
+});
+
+test('config snippets: keys must exist in their section; values and other tables are free', () => {
+  const ref = { sections: ['General', 'Database', 'Http', 'Log'], entries: REF.entries };
+  const p = page('```toml\n[General]\nName = "My server"\nNmae = "typo"\n\n[server]\nmain = "server/main.lua"\n```\n', 'hosting/quick-start.md');
+  assert.deepEqual(checkConfigSnippets(p, ref).map((x) => [x.check, x.claim]), [['config.snippet', '[General] Nmae']]);
+  assert.deepEqual(checkConfigExample(p, ref), [], 'a snippet is not the complete example');
+});
+
+const REF19 = {
+  sections: ['server', 'listing'],
+  entries: [
+    { section: 'server', key: 'name', type: 'string', default: '"Node Server"', env: 'NODE_NAME' },
+    { section: 'listing', key: 'guests', type: 'bool', default: 'true', env: 'NODE_DIRECTORY_TEST_DRIVE' },
+  ],
+  legacy: new Map([['[General] Name', '[server] name'], ['[Directory] TestDrive', '[listing] guests']]),
+};
+
+test('config 1.9.0 layout: lower-case keys, resource.toml blocks, old names', () => {
+  const m = checkConfigMentions(page('Set `[server] name`, not `[server] nmae`; `[server] main` is resource.toml\'s; `[General] Name` is gone.'), REF19, new Set());
+  assert.deepEqual(m.map((x) => [x.check, x.claim]), [['config.mention', '[server] nmae'], ['config.legacy', '[General] Name']]);
+  const table = page('| Before 1.9.0 | Since 1.9.0 |\n|---|---|\n| `[Directory] TestDrive` | `[listing] guests` |\n', 'hosting/updating.md');
+  assert.deepEqual(checkConfigMentions(table, REF19, new Set()), [], 'an old name under an old-names header is fine');
+  const manifest = page('```toml\nname = "race"\n\n[server]\nmain = "server/main.lua"\n```\n');
+  assert.deepEqual(checkConfigSnippets(manifest, REF19), [], 'a resource.toml is not a server.toml snippet');
+  const old = page('```toml\n[General]\nName = "x"\n```\n');
+  assert.deepEqual(checkConfigSnippets(old, REF19).map((x) => [x.check, x.claim]), [['config.snippet', '[General]']]);
 });
 
 // --- CLI ---------------------------------------------------------------------------
@@ -183,6 +242,22 @@ ARGUMENTS:
   assert.deepEqual(checkFlagMentions(page('Run `Node-Server --config=x` or `Node-Server --gen-config`.'), flags).map((x) => x.actual), ['--gen-config']);
 });
 
+test('cli: the 1.6 HelpText and the options compared by name', () => {
+  const main = `static const char* const HelpText = R"(
+Node-Server, the NodeMP game server.
+
+Usage: Node-Server [--port=N]
+)";
+  if (Name == "help") Flag(Out.Help);
+  else if (Name == "working-directory") Valued(Out.WorkingDirectory);
+  if (Arg == "--bans" || Arg.starts_with("--bans=")) {}`;
+  const { help, flags } = parseServerMain(main);
+  assert.ok(help.includes('Usage: Node-Server [--port=N]'));
+  assert.deepEqual([...flags].sort(), ['--bans', '--help', '--port', '--working-directory']);
+  const drift = page('```\nNode-Server, the NodeMP game server.\n\nUsage: Node-Server [--port=M]\n```\n');
+  assert.equal(checkHelpBlock(drift, help).length, 1);
+});
+
 // --- kick texts ------------------------------------------------------------------------
 
 test('kicks: wildcard compatibility and matching modes', () => {
@@ -205,7 +280,7 @@ test('kicks: messages of a cell borrow the prefix, server texts are collected fr
     '## Server refusals and kick reasons', '', '| Reason | When | What to do |', '|---|---|---|',
     '| `Server full!` | full | wait |', '| `Expected HELLO`, `Malformed HELLO` | bad launcher | reinstall |', '',
     'A line with `Disconnected · Server full!` and `Session ended · Server shutdown`.', '```', '`Disconnected · not collected`', '```',
-  ].join('\n'), 'support/error-codes.md');
+  ].join('\n'), 'reference/error-codes.md');
   const texts = collectServerTexts(p);
   assert.deepEqual(texts.map((t) => [t.text, t.inRefusalTable, t.prefix ?? null]), [
     ['Server full!', true, null], ['Expected HELLO', true, null], ['Malformed HELLO', true, null],
@@ -249,12 +324,28 @@ test('kicks: helper exit codes -- literal exists, code agrees with the exit that
     '| `2` | `cannot read the manifest file …` | manifest |',
     '| `0` | `game closed - launcher closing soon` | closed |',
     '| `1` | `Cannot get Local Appdata directory` | gone |',
-  ].join('\n'), 'support/error-codes.md');
+  ].join('\n'), 'reference/error-codes.md');
   const f = checkExitCodes(p, corpora, codes);
   assert.deepEqual(f.map((x) => [x.claim, x.expected, x.actual]), [
     ['Failed to find the game please launch it. Report this if the issue persists code 8', 'exit code 2', '1'],
     ['Cannot get Local Appdata directory', 'a log line of the launcher (launcher/src)', 'no such literal'],
   ]);
+});
+
+test('kicks: helper exit codes through FinishProcess(ExitCode::...)', () => {
+  const src = `
+    static void Start() {
+      const std::string Line = "Another Node-Launcher is already running on port " + std::to_string(port) + " - closing";
+      error(Line);
+      FinishProcess(ExitCode::AlreadyRunning, Line);
+    }
+    void Missing() {
+      FinishProcess(ExitCode::GameNotFound, "BeamNG.drive was not found; pass --game-dir <folder>");
+    }`;
+  const codes = launcherExitCodes(src);
+  const byText = (re) => codes.filter((c) => re.test(c.text)).map((c) => c.code);
+  assert.deepEqual(byText(/already running/), [5]);
+  assert.deepEqual(byText(/pass --game-dir/), [4]);
 });
 
 test('kicks: quoted messages are looked up as fragments across every corpus', () => {
@@ -273,7 +364,7 @@ test('kicks: quoted messages are looked up as fragments across every corpus', ()
     '| `Could not reach NodeMP at https://api.nodemp.com` | ok |',
     '| `invalid username or password` | directory |',
     '| `Disconnected · already judged` | skipped |',
-  ].join('\n'), 'support/joining.md');
+  ].join('\n'), 'players/troubleshooting.md');
   const f = checkQuoted(p, corpora, new Set(['8:Disconnected · already judged']));
   assert.deepEqual(f.map((x) => x.claim), ['invalid username or password']);
 });
@@ -303,11 +394,11 @@ test('kicks: a rewritten refusal must be documented with the launcher\'s words',
     '| `Protocol version mismatch: launcher speaks v17, server speaks v18 - update the outdated side` | shown as `Could not join · This server needs a newer launcher — update from the Download page` | update |',
     "| `Game files do not match this server's reference (3 problems). …` | strict | fix |",
     '| `Server full!` | full | wait |',
-  ].join('\n'), 'support/error-codes.md');
+  ].join('\n'), 'reference/error-codes.md');
   const texts = collectServerTexts(ec);
   const f = checkShown(ec, texts, d.describe);
   assert.deepEqual(f.map((x) => x.line), [6]);
-  const ts = page("| Message | Cause |\n|---|---|\n| `Disconnected · Game files do not match this server's reference (N problems). …` | strict |\n| `Disconnected · Server full!` | full |\n", 'support/joining.md');
+  const ts = page("| Message | Cause |\n|---|---|\n| `Disconnected · Game files do not match this server's reference (N problems). …` | strict |\n| `Disconnected · Server full!` | full |\n", 'players/troubleshooting.md');
   const g = checkShown(ts, collectServerTexts(ts), d.describe);
   assert.equal(g.length, 1);
   assert.match(g[0].expected, /^Could not join · Your game files do not match this server's reference \(3 problems\)/);
@@ -501,8 +592,8 @@ test('literal extractors: ts template interpolation, rust char literals and raw 
 
 test('runner: allowlist matching (optional page), page loading, skipped checks without a repository', () => {
   const findings = [
-    { check: 'kick.quoted', page: 'ru/support/error-codes.md', locale: 'ru', line: 1, claim: 'already exists', expected: 'x', actual: 'y' },
-    { check: 'kick.quoted', page: 'support/joining.md', locale: 'en', line: 1, claim: 'already exists', expected: 'x', actual: 'y' },
+    { check: 'kick.quoted', page: 'ru/reference/error-codes.md', locale: 'ru', line: 1, claim: 'already exists', expected: 'x', actual: 'y' },
+    { check: 'kick.quoted', page: 'players/troubleshooting.md', locale: 'en', line: 1, claim: 'already exists', expected: 'x', actual: 'y' },
     { check: 'versions.docs', page: 'hosting/updating.md', locale: 'en', line: 1, claim: 'this server speaks 2.0', expected: 'x', actual: 'y' },
     { check: 'versions.docs', page: 'hosting/running.md', locale: 'en', line: 1, claim: 'this server speaks 2.0', expected: 'x', actual: 'y' },
   ];

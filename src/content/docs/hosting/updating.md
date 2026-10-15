@@ -1,137 +1,180 @@
 ---
-title: Updating
-description: Check the version, replace the binary or pull the new image, keep server.toml and the TLS files, and what a protocol change means for players.
+title: Updating the server
+description: Check the version, install a new release on Windows, Linux and Docker, what survives an update, and when players need a new launcher.
 ---
 
-An update replaces the executable and its `tools/` folder, or the container image. Everything
-else — `server.toml`, the TLS files, resources, content, storage, bans — is data next to it and
-stays.
+An update replaces the program and the folders that come with it (`tools/`, `modules/`,
+`examples/`), or the Docker image. Everything else is your data and stays: `server.toml`, the TLS
+certificate, resources, mods, storage, bans.
 
-## Check the version
+## Which version is running
 
 ```bash
 ./Node-Server --version
 ```
 
-prints `Node-Server v1.5.0`. The startup banner shows the same number on its `version` line, and
-a listed server reports it to the directory in every beacon.
+It prints, for example, `Node-Server v1.9.1`. The start-up banner shows the same version.
 
 ## Where releases are
 
-Server releases are tags `server-v*` at
-[github.com/NodeMP-BeamNG/releases](https://github.com/NodeMP-BeamNG/releases). Each carries
-the two archives named after the version (`Node-Server-1.5.0-linux-x64.tar.gz`,
-`Node-Server-1.5.0-windows-x64.zip`) and their `.sha256` files, and its body carries the release
-notes (the server repository's `RELEASE_NOTES.md` section for that tag): what changed, whether a
-default changed and whether the wire protocol moved. Releases before 1.2.1 have a one-sentence
-body instead. These pages describe the current release; the
-[version table](/introduction/what-is-nodemp/#versions) says which server, launcher and client mod
-belong together and which wire protocol they speak, and a feature that arrived with an earlier
-release is marked where it is described (`added in server 1.2.0`). The Docker image of the same
-build carries the tag with the `v` (`ghcr.io/nodemp-beamng/server:v1.5.0`); `latest` follows the
-newest main-branch build, which may be ahead of the latest release — pin a version tag.
+Server releases are the `server-v…` tags on
+[GitHub](https://github.com/NodeMP-BeamNG/releases/releases). Each release's description says what
+changed, whether a default changed, and whether players need a new launcher. Read it before you
+update.
 
-## Binary
+## Windows
 
-Linux, with the layout from the [quick start](/hosting/quick-start/) and the systemd unit from
-[Running the server](/hosting/running/):
+1. Stop the server.
+2. Download the new archive and unpack it into the same folder over the old files. Let Explorer
+   replace them.
+3. Start the server and check the version in the banner.
+
+From PowerShell, unpacking with replacement looks like this:
+
+```powershell
+$zip = "$HOME\Downloads\Node-Server-1.9.1-windows-x64.zip"
+Expand-Archive $zip -DestinationPath C:\NodeMP -Force
+```
+
+Without `-Force` the command refuses to overwrite files.
+
+## Linux
+
+With the service from [Server on Linux](/hosting/linux/#a-systemd-service):
 
 ```bash
 cd /tmp
-curl -LO https://github.com/NodeMP-BeamNG/releases/releases/download/server-v1.5.0/Node-Server-1.5.0-linux-x64.tar.gz
-curl -LO https://github.com/NodeMP-BeamNG/releases/releases/download/server-v1.5.0/Node-Server-1.5.0-linux-x64.tar.gz.sha256
-sha256sum -c Node-Server-1.5.0-linux-x64.tar.gz.sha256
-sudo systemctl stop nodemp-server
-sudo tar -xzf Node-Server-1.5.0-linux-x64.tar.gz -C /opt/nodemp
+url=https://github.com/NodeMP-BeamNG/releases/releases/download/server-v1.9.1
+curl -LO "$url/Node-Server-1.9.1-linux-x64.tar.gz"
+curl -LO "$url/Node-Server-1.9.1-linux-x64.tar.gz.sha256"
+sha256sum -c Node-Server-1.9.1-linux-x64.tar.gz.sha256
+```
+
+Then stop the service, unpack the archive over the old files and start it again:
+
+```bash
+sudo systemctl stop nodemp
+sudo tar -xzf Node-Server-1.9.1-linux-x64.tar.gz -C /opt/nodemp
 sudo chown -R nodemp:nodemp /opt/nodemp
-sudo systemctl start nodemp-server
-/opt/nodemp/Node-Server --version
+sudo systemctl start nodemp
 ```
 
-The archive holds `Node-Server`, `tools/`, `examples/` and `EXAMPLES_COMMIT`; extracting it over
-the folder replaces exactly those and touches nothing else - `resources/`, where your copies of
-the examples live, is not in the archive. Replace the version in the file names with the release
-you are installing.
-
-Windows, with the layout from the quick start: stop the server, then in PowerShell
-
-```powershell
-Set-Location C:\NodeMP
-Invoke-WebRequest https://github.com/NodeMP-BeamNG/releases/releases/download/server-v1.5.0/Node-Server-1.5.0-windows-x64.zip -OutFile Node-Server-1.5.0-windows-x64.zip
-Invoke-WebRequest https://github.com/NodeMP-BeamNG/releases/releases/download/server-v1.5.0/Node-Server-1.5.0-windows-x64.zip.sha256 -OutFile Node-Server-1.5.0-windows-x64.zip.sha256
-(Get-FileHash Node-Server-1.5.0-windows-x64.zip).Hash.ToLower() -eq (Get-Content Node-Server-1.5.0-windows-x64.zip.sha256).Split(' ')[0]
-Expand-Archive Node-Server-1.5.0-windows-x64.zip -DestinationPath . -Force
-.\Node-Server.exe --version
-```
-
-`-Force` is what the quick start's command lacks: without it `Expand-Archive` refuses to
-overwrite the existing `Node-Server.exe` and `tools\` (`… already exists. Use the -Force
-parameter`). Everything else in the folder stays.
+Unpacking over the folder replaces exactly what the archive holds. Your `resources/`, including your
+copies of the examples, isn't in the archive and isn't touched.
 
 ## Docker
 
-Change the tag in the Compose file, then:
+Load the new image and use its tag:
 
 ```bash
-docker compose pull gameserver
-docker compose up -d gameserver
-docker compose logs -f gameserver
+docker load -i nodemp-server-v1.9.1-image.tar
 ```
 
-With `image: ghcr.io/nodemp-beamng/server:latest` the same two commands move to the newest
-main-branch build, which may be ahead of the latest release — pin a version tag. The `/data`
-volume is untouched. To roll back, put the previous tag in the file and run
-the same commands.
+In `compose.yaml`, change the `image:` line to the new tag and run `docker compose up -d`. With
+`docker run`, remove the old container and start a new one with the same `-v` and variables. The
+`data/` folder doesn't change. To go back, put the previous tag back.
 
 ## What survives an update
 
-- **`server.toml`** is read by the new version and rewritten on its first start. Keys the new
-  version adds appear with their defaults; keys it no longer has are dropped; your values stay.
-  The file does not show you which key is new: compare it with the
-  [reference table](/hosting/configuration/#reference), which always describes the current
-  release (a key that arrived with a release is marked there with its version). The env-only
-  Docker image has no file: a new key simply takes its default until you set its variable.
-- **`node_cert.pem` and `node_key.pem`** are not part of the archive and are only generated
-  when missing. Keep them: their fingerprint is how the directory and every launcher identify
-  your server, and players who used Direct Connect have pinned it. A server that comes back with
-  a new certificate is refused by those launchers with `server certificate fingerprint mismatch`
-  until they clear the pin; listed servers get a new fingerprint recorded by the directory's
-  probe within a couple of minutes.
-- **`resources/`, `content/`, `storage/`, `bans.json`** are yours and untouched.
-- **`integrity/`** — the reference manifest of a strict server — is yours too. It is tied to a
-  game version, not to a server version: a server update leaves it alone, a **BeamNG** update
-  makes it stale, and you regenerate it then
-  ([Strict verification](/hosting/strict-verification/#after-a-game-update)). 1.1.0 adds the
-  `[General] IntegrityDir` key, which appears in `server.toml` at its default `"integrity"`
-  after the first start.
-- **`.obfcache/`** is keyed by the obfuscator's revision, so a new build rebuilds it as needed.
-  Deleting it is always safe.
-- **Native modules** in `modules/` are checked against the server's plugin ABI at load. A module
-  built for an older major ABI is refused with
-  `module 'js-host' was built against SDK ABI 1.0, this server speaks 2.3 -- refusing to load it. Rebuild the module.`
-  (the numbers are the live values) and needs a rebuild; resources written in a language such a module provides then do not
-  load. Lua resources need nothing rebuilt, but re-test them after a major update.
+- **`server.toml`** stays as it is. A setting the new version brings takes its default until you
+  add it to the file; the server doesn't add it for you. In Docker there's no file: a new setting
+  takes its default until you set its variable. The one exception is the move to 1.9.0, below.
+- **`node_cert.pem` and `node_key.pem`** aren't in the archive and are only made when missing. Keep
+  them: players who joined by address remember the certificate and won't connect to a server with a
+  different one.
+- **`resources/`, `content/`, `storage/`, `bans.json`** are yours, and the update doesn't touch
+  them. If a resource of yours uses the database module's `db.lua`, copy the new `modules/db.lua`
+  into it.
+- **`integrity/`** belongs to a game version, not a server version. After a BeamNG update, make it
+  again ([Strict file check](/hosting/strict-verification/#after-a-game-update)).
+- **Native modules** in `modules/` are checked at load. One built for an incompatible interface
+  version is refused with a request to rebuild it. Lua resources need no rebuilding.
 
-Going back to an older version works the same way in reverse: it ignores keys it does not know
-and rewrites the file without them.
+Since server 1.8.0 the server has no chat commands of its own; resources add them. A resource that
+called `node.commands` stops at that line with `attempt to index a nil value (field 'commands')`.
+Update it, or start from `examples/chat-commands` ([Chat and commands](/plugins/chat/)).
 
-## Protocol versions
+## Settings since 1.9.0
 
-Launcher and server speak a versioned wire protocol: **`v23` since server 1.5.0**, which belongs
-together with launcher 1.1.18 and client mod 1.6.19. 1.1.0 raised it from `v17` to `v18` for the
-strict install check and 1.1.1, 1.2.0 and 1.2.1 kept `v18`; 1.3.0 moved it to `v21` (position
-batching, the synced node grabber and in-world triggers as core packets, vehicle fire and the
-player's entry policy as frames) and 1.4.0 to `v22` (a refusal carries its reason: the seat
-verdict's text and `Vehicle::EditDeny`); 1.5.0 moved it to `v23` (the sender's own acceleration
-rides the position snapshot, 72 -> 78 bytes, so a remote car's forecast no longer has to
-difference two noisy packets), so a 1.4.x server and a 1.1.11 launcher refuse each other in
-both directions -- update the server in the same window your players get the launcher.
-When a release changes it, a launcher on the old version is refused at the handshake with
-`Protocol version mismatch: launcher speaks v22, server speaks v23 - update the outdated side`
-(the two numbers are the live values). Players fix that by installing the current launcher from
-[nodemp.com/download](https://nodemp.com/download); the client mod is kept current by the
-launcher automatically before every join, the launcher itself is not. As a host, update the
-server soon after such a release, since players are on the new launcher already. Whether a
-release changed the protocol is stated in its release notes, here and in the
-[version table](/introduction/what-is-nodemp/#versions): a server release that keeps the protocol
-(1.1.1, 1.2.0, 1.2.1, 1.4.1) needs no launcher update from your players; one that moves it (1.3.0, 1.4.0) does.
+Since server 1.9.0, `server.toml` has a new layout: lower-case keys in tables named for what they set.
+You don't have to redo the file by hand.
+
+- On the first start of 1.9.0 the server rewrites a file in the old layout with the same settings
+  and keeps the old one next to it as `server.toml.old`. The log says
+  `server.toml was in the legacy layout: rewritten in the new one with the same settings`.
+- The new file has `[server]` and `[listing]`, like a fresh one, plus every other setting whose
+  value wasn't the default. A key the server doesn't read isn't carried over, and the log names it.
+- The `NODE_*` variables are the same as before, so a server set up through them, the Docker image
+  included, notices nothing.
+- If the server can't write the new file, it says so in the log and reads the old one as it is.
+
+Old guides still show the old names. Write the new ones: a table with an old name in the new file
+works, but the server then converts the file again, drops the comments you wrote in it and replaces
+`server.toml.old`. Where each key went:
+
+| Before 1.9.0 | Since 1.9.0 |
+|---|---|
+| `[General] Name` | `[server] name` |
+| `[General] Port` | `[server] port` |
+| `[General] MaxPlayers` | `[server] max_players` |
+| `[General] MaxCars` | `[server] cars_per_player` |
+| `[General] Map` | `[server] map` |
+| `[Content] Folder` | `[server] mods` |
+| `[General] IP` | `[server] address` |
+| `[General] Console` | `[server] console` |
+| `[Directory] Url` | `[listing] url` |
+| `[Directory] HostId` | `[listing] host_id` |
+| `[Directory] HostSecret` | `[listing] host_secret` |
+| `[Directory] Description` | `[listing] description` |
+| `[Directory] Mode` | `[listing] mode` |
+| `[Directory] Tags` | `[listing] tags` |
+| `[Directory] Preview` | `[listing] preview` |
+| `[Directory] Public` | `[listing] public` |
+| `[Directory] TestDrive` | `[listing] guests` |
+| `[Directory] Fingerprint` | `[listing] fingerprint` |
+| `[Directory] CaFile` | `[listing] ca_file` |
+| `[Directory] RedeemFailOpen` | `[listing] admit_when_down` |
+| `[Directory] AllowInsecure` | `[listing] allow_http` |
+| `[General] VerifyGame` | `[integrity] verify` |
+| `[General] IntegrityDir` | `[integrity] manifests` |
+| `[Network] TlsCert` | `[network] tls_cert` |
+| `[Network] TlsKey` | `[network] tls_key` |
+| `[Network] StateRelayRadius` | `[network] relay_radius` |
+| `[Network] LagGraceSec` | `[network] lag_grace_sec` |
+| `[Network] AuthTakeoverSec` | `[network] seat_takeover_sec` |
+| `[Network] AuthReleaseSec` | `[network] seat_release_sec` |
+| `[Network] DisconnectSec` | `[network] disconnect_sec` |
+| `[Network] SendQueueBudgetMB` | `[network] send_queue_budget_mb` |
+| `[Network] MaxConnectionsPerIp` | `[network] max_connections_per_ip` |
+| `[Network] MaxConnections` | `[network] max_connections` |
+| `[Network] ConnectionLimitExempt` | `[network] connection_limit_exempt` |
+| `[Network] HandshakeTimeoutSec` | `[network] handshake_timeout_sec` |
+| `[Network] DownloadStallSec` | `[network] download_stall_sec` |
+| `[Chat] MaxLength` | `[chat] max_length` |
+| `[Chat] RatePerSec` | `[chat] rate_per_sec` |
+| `[Chat] Burst` | `[chat] burst` |
+| `[Chat] LogToConsole` | `[chat] log` |
+| `[Chat] LogHiddenCommands` | `[chat] masked_commands` |
+| `[General] Debug` | `[logs] debug` |
+| `[Log] MaxSizeMB` | `[logs] max_size_mb` |
+| `[Log] Keep` | `[logs] keep` |
+| `[Log] Date` | `[logs] date` |
+| `[Network] StatsIntervalSec` | `[logs] netstats_sec` |
+| `[Sync] Variant` | `[sync] variant` |
+| `[Sync] HoldTight` | `[sync] hold_tight` |
+| `[Sync] SteerLead` | `[sync] steer_lead` |
+| `[Sync] VerboseTrace` | `[sync] verbose_trace` |
+| `[Sync] TraceRate` | `[sync] trace_rate` |
+| `[Http] CaFile` | `[http] ca_file` |
+| `[Http] Insecure` | `[http] insecure` |
+| `[Http] AllowPrivateNetworks` | `[http] allow_private_networks` |
+| `[Resources] Obfuscate` | `[resources] obfuscate` |
+| `[Experimental] NodeGrab` | `[experimental] node_grab` |
+
+## When players need a new launcher
+
+The launcher and the server speak a versioned protocol. Server 1.9.1 speaks v23, like the releases
+before it: launchers from version 1.1.23 and client mods from version 1.6.25 join it as before. When
+a release changes the protocol, its description says so prominently, and an old launcher is refused
+with a request to update. The launcher offers **Update now** by itself, and the client mod is updated
+before every join. Update your server at the same time as players get the new launcher.

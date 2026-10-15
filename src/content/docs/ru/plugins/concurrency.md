@@ -1,264 +1,149 @@
 ---
-title: Конкурентность
-description: Один рабочий поток для обработчиков; таймеры, node.defer, корутины (node.async), фоновые задания (node.job, node.await), асинхронные HTTP и файлы.
+title: Таймеры и корутины
+description: Таймеры, корутины, которые ждут, не задерживая сервер, тяжёлая работа в фоновых потоках, правило 250 мс и перезапуск с обратным отсчётом в чате.
 ---
 
-Сервер многопоточный; ваш Lua - нет. Каждый обработчик каждого ресурса выполняется в одном рабочем
-потоке плагинов, по одному вызову за раз, а всё остальное, что предлагает API, существует, чтобы
-этот поток никогда не ждал. Эта страница - модель и правила; в
-[справочнике Lua API](/ru/plugins/api/lua/) есть сигнатура каждого вызова.
+Все обработчики, таймеры и корутины всех ресурсов выполняются на одном рабочем потоке, по очереди.
+Код от этого простой — без блокировок и гонок, — но есть одно правило: **ничего не блокировать**.
+Обработчик, который крутится в цикле секунду, на эту секунду задерживает все остальные ресурсы. Если
+одна задача держит поток дольше 250 мс, сервер предупреждает:
 
-## Один рабочий поток
+```
+plugin worker job stalled the thread …
+```
 
-Сетевые потоки принимают пакеты и ставят события в очередь; один рабочий поток разбирает очередь
-и вызывает ваши обработчики. Таймеры, колбэки `node.defer`, возобновления корутин, доставки по
-шине, завершения HTTP и заданий - всё приземляется в том же потоке. Два следствия:
-
-- **Вам никогда не нужна блокировка.** Ни один обработчик не выполняется, пока выполняется другой,
-  ни в вашем ресурсе, ни в любом другом, поэтому обычная таблица Lua - безопасное место для общего
-  состояния.
-- **Блокировка блокирует всех.** Обработчик, который крутится в цикле секунду, на эту секунду
-  останавливает обработчики всех остальных ресурсов, каждый таймер и `serverTick`. Сервер за этим
-  следит: каждый кусок кода плагина, который выполняет рабочий поток, - обработчики событий, шины и
-  запросов (ответ `db` возвращается именно так), колбэки таймеров, отрезки корутины `node.async`
-  между двумя приостановками, колбэки завершения HTTP и задач, приёмники лога - измеряется
-  отдельно, и тот, что занял больше 250 мс, отмечается строкой с ресурсом и видом:
-  `plugin worker job stalled the thread for 699 ms (resource race, timer) — move heavy work to node.await/node.job`.
-  Отрезок, вложенный в другой (колбэк таймера, который запускает корутину, чей первый отрезок
-  зависает), отмечается один раз - за внутренний. (До 1.2.1 измерялись только целые задания
-  рабочего потока, так что медленный колбэк таймера или отрезок корутины оставался незамеченным, а
-  строка не называла ресурс.) Когда очередь переполнена более чем 100 000 ожидающих заданий, новые
-  события отбрасываются со строкой `plugin job queue full (100000 jobs) -- dropping events (flood?)`.
-
-Что выполняется в другом месте: фоновый пул (`node.job`, `node.await`, `node.http`), поток записи
-файлов (`node.fs.writeAsync`) и сами сетевые потоки. Ни один из них никогда не трогает ваше
-состояние Lua; результаты возвращаются в рабочий поток как простые данные и колбэк.
+Ждут с помощью таймеров и корутин, а тяжёлую работу отдают фоновым потокам.
 
 ## Таймеры
 
-- `node.after(ms, fn) -> id` выполняет `fn` один раз через `ms` миллисекунд.
-- `node.every(ms, fn) -> id` выполняет `fn` каждые `ms` миллисекунд до отмены. Медленный `fn`
-  задерживает следующий запуск; запуски не накапливаются.
-- `node.cancel(id)` отменяет любой из них; безопасен для идентификатора, который уже сработал.
-
-Таймеры обслуживаются после каждой пачки обработчиков, поэтому таймер никогда не прерывает
-обработчик; рабочий поток просыпается к ближайшему сроку, и `serverTick` срабатывает каждые 100 мс
-рядом с ними. Таймер принадлежит ресурсу, который его поставил, и умирает при перезагрузке; при
-остановке срабатывает `serverShutdown`, затем собственный `resourceUnload("shutdown")` каждого
-ресурса, и таймеры больше не выполняются. Тот же хук срабатывает как `resourceUnload("reload")`
-прямо перед тем, как перезагрузка сбросит состояние, - место, чтобы сохранить то, что накапливал
-таймер; запись `node.storage`, сделанная там, сохраняется, а колбэк, таймер, корутина или запрос
-`db`, запущенные там, никогда не завершатся - шина доставляет на следующем обороте рабочего потока
-([Ресурсы](/ru/plugins/resources/#перезагрузка)).
+| Вызов | Что делает |
+|---|---|
+| `node.after(ms, fn)` | Выполняет `fn` один раз через `ms` миллисекунд. |
+| `node.every(ms, fn)` | Выполняет `fn` каждые `ms` миллисекунд. Медленный запуск сдвигает следующий, запуски не копятся. |
+| `node.cancel(id)` | Останавливает таймер. Безопасно и для уже сработавшего. |
+| `node.defer(fn)` | Выполняет `fn`, как только текущее событие обработано. |
 
 <!-- doctest: server -->
 ```lua
 local ticks = 0
-local intervalId
-intervalId = node.every(60000, function()
+local id
+id = node.every(500, function()
     ticks = ticks + 1
-    node.log("minute %d, players: %d", ticks, node.players.count())
-    if ticks >= 60 then
-        node.cancel(intervalId)
+    if ticks == 3 then
+        node.cancel(id)
+        node.log("stopped after %d ticks", ticks)
     end
 end)
 
-node.after(500, function()
-    node.log("half a second in, timer %d is ticking", intervalId)
-end)
-
--- expect: half a second in, timer \d+ is ticking
+-- expect: stopped after 3 ticks
 ```
 
-## После остальных: node.defer
+`serverTick` приходит на каждом такте сервера. Он делит поток со всем остальным, поэтому держите его
+коротким; обычно таймер подходит лучше.
 
-`node.defer(fn)` выполняет `fn` в рабочем потоке после того, как закончится текущая пачка
-обработчиков. Это способ действовать, когда каждый другой обработчик события, в котором вы
-находитесь, уже его увидел, - прелюдия использует его, чтобы забыть имя ушедшего игрока только
-после того, как выполнился каждый обработчик `playerLeft`. Всё, что вы отправляете или меняете
-внутри `fn`, происходит после события, а не во время него.
+## Корутины
 
-<!-- doctest: server+client {"spawn": "coupe"} -->
+Корутина — это код, который умеет вставать на паузу, не занимая поток. `node.async(fn)` запускает
+её, а внутри `node.sleep(ms)` ждёт нужное время, пока всё остальное продолжает работать. Обратный
+отсчёт читается сверху вниз:
+
+<!-- doctest: server -->
 ```lua
-node.on("vehicleSpawned", function(vehicle)
-    node.defer(function()
-        if vehicle:exists() then -- another handler may have deleted it meanwhile
-            vehicle:setTag("spawnedAt", tostring(node.server.unixTime()))
-            node.log("%s tagged spawnedAt=%s", tostring(vehicle), vehicle:tag("spawnedAt"))
-        end
-    end)
+node.async(function()
+    for i = 3, 1, -1 do
+        node.log("%d", i)
+        node.sleep(500)
+    end
+    node.log("go")
 end)
 
--- expect: Vehicle#\d+ Alice tagged spawnedAt=\d+
+-- expect: ^go$
 ```
 
-## Ожидание без блокировки: node.async
-
-`node.async(fn, ...)` выполняет `fn(...)` как кооперативную корутину в рабочем потоке и возвращает
-идентификатор задачи. Внутри неё четыре вызова приостанавливают корутину, пока всё остальное
-продолжает работать:
-
-- `node.sleep(ms)` - на заданное время.
-- `node.wait(msOrPredicate, intervalMs?)` - число спит; функция приостанавливает до тех пор, пока не
-  вернёт истину, с опросом каждые `intervalMs` (по умолчанию 50).
-- `node.yield()` - отдаёт рабочий поток на один ход внутри длинного цикла, который должен
-  выполняться в нём. Справедливость, а не параллелизм.
-- `node.await(workFn, args?)` - выполняет функцию в фоновом пуле и возобновляется с её результатом;
-  см. ниже. `node.http.fetch` построен на той же идее.
-
-Вне корутины эти вызовы падают: `node.sleep called outside a node.async task` в логе и ошибка Lua
-«attempt to yield» в обработчике. Задача заканчивается, когда `fn` возвращает управление или
-выбрасывает ошибку; ошибка пишется в лог как `error in async task`. Задачи сбрасываются при
-перезагрузке и при остановке.
-
-<!-- doctest: server+client {"emit": [["race:start", ""]]} -->
-```lua
-node.on("race:start", function(player, data)
-    node.async(function()
-        for i = 3, 1, -1 do
-            node.broadcast("race:countdown", tostring(i))
-            node.sleep(1000)
-        end
-        node.broadcast("race:go")
-        node.log("race started by %s", tostring(player))
-    end)
-end)
-
--- expect-client: Alice race:countdown 3
--- expect-client: Alice race:go
--- expect: race started by Player#\d+ Alice
-```
-
-Корутина, которая спала, просыпается в изменившемся мире: игрок мог выйти, машина могла исчезнуть.
-Перепроверяйте через `player:isConnected()` и `vehicle:exists()` после каждого `node.sleep` и
-помните, что идентификаторы переиспользуются.
-
-## Настоящий параллелизм: node.job и node.await
-
-Тяжёлым вычислениям не место в рабочем потоке. `node.job(workFn, args?, doneFn)` выполняет
-`workFn` в потоке фонового пула в свежем, черновом состоянии Lua и вызывает `doneFn(result, err)`
-в рабочем потоке, когда оно закончится. `node.await(workFn, args?)` - форма для корутин, только
-внутри `node.async`: приостанавливается до завершения работы и возвращает `result` или `nil, err`.
-
-Поскольку `workFn` выполняется в другом состоянии Lua, она должна быть **самодостаточной**: без
-upvalue, без `node`, без глобальных переменных вашего ресурса - она сериализуется в байткод и
-загружается в другом месте, а функция, которую нельзя выгрузить, падает со строкой
-`work function cannot be serialized (C function?)`. Она получает `args` и возвращает результат,
-оба сериализуемые в JSON (таблицы, строки, числа, логические значения). Отдавайте ей копии того,
-что ей нужно, и получайте обратно простые данные.
-
-<!-- doctest: server+client {"emit": [["stats:request", ""]]} -->
-```lua
-node.storage.set("scores", { { name = "Bob", time = 71.2 }, { name = "Alice", time = 64.9 } })
-
-node.on("stats:request", function(player, data)
-    node.async(function()
-        local scores = node.storage.get("scores", {})
-        local top, err = node.await(function(args)
-            table.sort(args.scores, function(a, b) return a.time < b.time end)
-            local out = {}
-            for i = 1, math.min(10, #args.scores) do out[i] = args.scores[i] end
-            return out
-        end, { scores = scores })
-        if not top then
-            node.log.warn("ranking failed: %s", err)
-            return
-        end
-        player:send("stats:top", top)
-        node.log("%s leads with %.1f s", top[1].name, top[1].time)
-    end)
-end)
-
--- expect: Alice leads with 64\.9 s
--- expect-client: Alice stats:top \[\{
-```
-
-В пуле по одному потоку на аппаратный поток, в пределах от 2 до 32; `NODE_PLUGIN_POOL`
-переопределяет число. Его очередь вмещает 10 000 заданий; сверх того `node.job` возвращает
-`false`, а `node.await` возобновляется с `nil, "background pool is full"`.
-
-## HTTP
-
-`node.http` выполняет запросы в фоновом пуле и вызывает вас обратно в рабочем потоке.
-
-- `node.http.request(method, url, opts?, cb)` - общая форма (добавлена в сервере 1.2.0): любой метод -
-  `"GET"`, `"POST"`, `"PUT"`, `"PATCH"`, `"DELETE"`, `"HEAD"` или свой токен, который понимает
-  сервис; токен - только буквы A–Z, не более 16, и прелюдия сама переводит его в верхний регистр
-  (всё остальное отвечает `-1` и `invalid HTTP method`), - с `opts.headers` (таблица) и
-  `opts.body` (таблица кодируется в JSON, строка отправляется как есть, `nil` не отправляет
-  тела). `cb(status, body, headers)` выполняется в рабочем потоке.
-- `node.http.get(url, headers?, cb)`, `node.http.post(url, body, headers?, cb)`,
-  `node.http.put(url, body?, headers?, cb)`, `node.http.patch(url, body?, headers?, cb)`,
-  `node.http.delete(url, body?, headers?, cb)` и `node.http.head(url, headers?, cb)` - это
-  `request` с фиксированным методом; ответ на `HEAD` несёт статус и заголовки и пустое тело.
-  Неудавшийся запрос вызывает колбэк со статусом `-1` и текстом ошибки в `body` (`resolve
-  failed`, `connect failed`, `TLS handshake failed`, …); каждая из них возвращает `false` только
-  тогда, когда запрос не удалось поставить в очередь, и тогда `cb` не вызывается.
-- `headers` в колбэке (и третье значение `fetch`) - таблица с ключами в виде имён заголовков **в
-  нижнем регистре**: `headers["content-type"]`, `headers["content-length"]`. Заголовки запроса,
-  которые вы отправляете, сохраняют тот регистр, в котором вы их написали
-  (`["Content-Type"] = "application/json"` - нормально); имена заголовков ответа сервер приводит
-  к нижнему регистру, так что `headers["Content-Type"]` всегда `nil`.
-- `node.http.fetch(url, opts?)` - форма для корутин, только внутри `node.async`:
-  `local status, body, headers = node.http.fetch(url, { method = "DELETE", body = t, headers = h })`.
-  `opts.method` - любой метод, который принимает `request` (до 1.2.0 всё, кроме `POST`,
-  отправлялось как `GET`); `status` равен `0` с телом `"request not queued"`, если запрос не
-  удалось поставить в очередь.
-
-Примерно 15 с тайм-аута, предел тела 8 МБ, до пяти редиректов. Проверка TLS-сертификата
-собеседника **выключена**, если хост не задал `[Http] CaFile` в `server.toml`
-([Конфигурация](/ru/hosting/configuration/#http)): тогда каждый `https://`-запрос проверяется по
-этому набору CA и по имени хоста, а сертификат, не прошедший проверку, - это `-1`, тело которого
-начинается с `TLS handshake failed (peer verification against [Http] CaFile)`, а редирект, который
-увёл бы проверенный `https://`-запрос на обычный `http://`, не выполняется (`-1`,
-`redirect to plain http refused (verified request)`). Без него не отправляйте секреты хостам,
-которые вы не контролируете.
+`node.wait(fn)` ждёт, пока `fn` не вернёт истину, проверяя каждые 50 мс:
 
 <!-- doctest: server+client -->
 ```lua
-node.on("playerJoined", function(player)
-    node.http.get("https://example.com/motd.txt", function(status, body)
-        if status == 200 and player:isConnected() then
-            player:tell(body)
-        elseif status ~= 200 then
-            node.log.warn("no message of the day: %s", status == -1 and body or ("HTTP " .. status))
+node.async(function()
+    node.wait(function()
+        return node.players.count() > 0
+    end)
+    node.log("someone is here")
+end)
+
+-- expect: someone is here
+```
+
+Внутри корутины так же ждёт ответа `node.http.fetch` ([HTTP-запросы](/ru/plugins/http/)), а вызовы
+модуля базы данных ждут своих результатов ([Модуль db](/ru/plugins/database/)).
+
+## Тяжёлая работа
+
+Долгим вычислениям на рабочем потоке не место вовсе. `node.await(fn, args)` выполняет `fn` в фоновом
+потоке и держит корутину на паузе, пока она не закончит:
+
+<!-- doctest: server -->
+```lua
+node.async(function()
+    local sum, err = node.await(function(n)
+        local total = 0
+        for i = 1, n do
+            total = total + i
+        end
+        return total
+    end, 1000)
+    node.log("sum = %s", tostring(sum or err))
+end)
+
+-- expect: sum = 500500
+```
+
+Фоновая функция копируется в другое состояние Lua, поэтому она должна быть самодостаточной: никаких
+внешних переменных, никакого `node`, только её аргумент и обычный Lua. Аргумент и результат
+передаются как JSON. `node.job(fn, args, done)` — то же самое, только с колбэком вместо корутины.
+
+## Перезапуск с обратным отсчётом
+
+`node.server.shutdown(reason, delayMs)` планирует остановку, а `serverShutdownScheduled` сообщает
+всем ресурсам, когда она будет, — и кто-то из них может вести обратный отсчёт в чате. С
+`Restart=always` в systemd или политикой перезапуска в Docker остановка превращается в перезапуск.
+
+<!-- doctest: server+client {"config": {"moderators": [42]}, "emit": [["chat:send", {"text": "/restart"}]]} -->
+```lua
+local moderators = {}
+for _, id in ipairs(node.config.moderators or {}) do
+    moderators[id] = true
+end
+
+local current
+
+node.on("serverShutdownScheduled", function(info)
+    current = info
+    if info.cancelled then
+        node.chat.say("The restart is called off")
+        return
+    end
+    node.async(function()
+        while current == info do
+            local left = math.floor(info.at - node.server.unixTime())
+            if left <= 0 then break end
+            node.chat.say("Restart in %d s: %s", left, info.reason)
+            node.sleep(math.min(left, 60) * 1000)
         end
     end)
 end)
 
--- expect: no message of the day: .+
+node.on("chatMessageRequest", function(player, msg)
+    if msg.text ~= "/restart" then return end
+    if moderators[player.accountId] then
+        node.server.shutdown("Scheduled restart", 5 * 60 * 1000)
+    end
+    return { handled = true }
+end)
+
+-- expect-client: Alice chat:msg .*Restart in \d+ s: Scheduled restart
 ```
 
-## Файлы и хранилище вне рабочего потока
-
-`node.fs.write` синхронен: нормально для маленького файла, задержка для большого.
-`node.fs.writeAsync(path, data, cb?)` передаёт байты потоку записи файлов и выполняет `cb(ok)` в
-рабочем потоке, когда запись завершена; несколько записей в один путь до того, как поток до них
-дойдёт, сворачиваются в последнюю. `node.storage.set` дописывает одну строку в журнал изменений
-хранилища до возврата - цена значения, а не всего хранилища, - поэтому его можно вызывать внутри
-обработчика; журнал сворачивается в снимок, когда перерастает его. Хранилище описано на странице
-[Ресурсы](/ru/plugins/resources/#состояние-nodestorage).
-
-## Правила
-
-1. Держите обработчики короткими. Всё, что дольше нескольких миллисекунд, относится в `node.async`
-   (ожидание) или `node.await`/`node.job` (вычисления).
-2. Никогда не ждите в цикле. Синхронных sleep или HTTP нет; используйте `node.sleep`, `node.wait` и
-   `node.http.fetch` внутри `node.async`.
-3. Не делите с фоновым заданием ничего, кроме JSON: оно выполняется в другом состоянии Lua и не
-   видит ни ваших таблиц, ни `node`.
-4. Когда вам нужны сразу многие машины, предпочитайте опрос геттера по таймеру потоковому событию
-   на 60 Гц: `node.vehicles.transforms()` - одно чтение.
-5. После любой приостановки перепроверяйте, что игрок и машина ещё существуют; идентификаторы
-   переиспользуются.
-6. Всё, что вы регистрируете, умирает при перезагрузке; уже работающее задание или HTTP-запрос -
-   нет, и его колбэк может застать мир изменившимся.
-7. Нативные модули следуют другому контракту - вызовы `NodeApi` потокобезопасны из любого потока, а
-   фильтр ретрансляции и приёмник лога выполняются инлайн. См.
-   [Нативные модули](/ru/plugins/native-modules/).
-
-## Дальше
-
-- [Справочник Lua API](/ru/plugins/api/lua/#top-level-events-sending-timers-coroutines) - вызовы
-  таймеров и корутин с их сигнатурами.
-- [События](/ru/plugins/events/) - что вообще приходит в рабочий поток.
+Повторный вызов `shutdown` заменяет расписание, отрицательная задержка отменяет его. Когда время
+приходит, игроков отключают с этой причиной, срабатывают `serverShutdown` и `resourceUnload`, и сервер
+завершается с кодом 0.

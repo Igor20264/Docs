@@ -23,6 +23,10 @@ function foldBetweenBars(overviews) {
     if (overview(new URL(from).pathname) !== overview(location.pathname)) e.viewTransition.types.add('nmp-fold');
   });
 }
+// Every redirect in each locale: '/a/' -> '/b/' also gives '/ru/a/' -> '/ru/b/'.
+const withLocales = (map) => Object.fromEntries(Object.entries(map).flatMap(([from, to]) =>
+  Object.keys(locales).map((code) => (code === 'root' ? [from, to] : [`/${code}${from}`, `/${code}${to}`]))));
+
 const overviews = Object.keys(locales).map((code) => (code === 'root' ? '/' : `/${code}/`));
 
 export default defineConfig({
@@ -30,27 +34,33 @@ export default defineConfig({
   // The styles ride in each page instead of a second request: the first paint then waits
   // for the page alone, so arriving from nodemp.com shows no empty frame between the sites.
   build: { inlineStylesheets: 'always' },
-  // Slugs removed by the phase-4 rewrite. Astro emits a meta-refresh page for each.
-  redirects: {
-    '/introduction/beammp-compatibility/': '/introduction/differences-from-beammp/',
-    '/ru/introduction/beammp-compatibility/': '/ru/introduction/differences-from-beammp/',
+  // Removed slugs and where they live now, the same in every locale. Astro writes a
+  // meta-refresh page for each.
+  redirects: withLocales({
+    '/introduction/beammp-compatibility/': '/plugins/migrating/',
+    '/introduction/differences-from-beammp/': '/plugins/migrating/',
+    '/introduction/how-it-works/': '/introduction/what-is-nodemp/',
+    '/framework/overview/': '/introduction/what-is-nodemp/',
+    '/framework/sync/': '/introduction/what-is-nodemp/',
     '/plugins/server-api/': '/plugins/api/lua/',
-    '/ru/plugins/server-api/': '/ru/plugins/api/lua/',
     '/plugins/client-api/': '/plugins/client-scripting/',
-    '/ru/plugins/client-api/': '/ru/plugins/client-scripting/',
     // The section root has no page of its own; readers type it.
     '/plugins/': '/plugins/overview/',
-    '/ru/plugins/': '/ru/plugins/overview/',
-    // The 2026-10 restructure: support pages moved out of players/ and reference/.
-    '/players/troubleshooting/': '/support/troubleshooting/',
-    '/ru/players/troubleshooting/': '/ru/support/troubleshooting/',
-    '/reference/error-codes/': '/support/error-codes/',
-    '/ru/reference/error-codes/': '/ru/support/error-codes/',
-    '/reference/faq/': '/support/faq/',
-    '/ru/reference/faq/': '/ru/support/faq/',
-    '/support/': '/support/troubleshooting/',
-    '/ru/support/': '/ru/support/troubleshooting/',
-  },
+    '/plugins/protocol/': '/reference/protocol/',
+    '/plugins/recipes/': '/plugins/examples/',
+    '/players/vpn/': '/players/connection/',
+    '/support/': '/players/troubleshooting/',
+    '/support/troubleshooting/': '/players/troubleshooting/',
+    '/support/joining/': '/players/troubleshooting/',
+    '/support/strict-servers/': '/players/troubleshooting/',
+    '/support/launcher/': '/players/troubleshooting/',
+    '/support/logs/': '/players/troubleshooting/',
+    '/support/error-codes/': '/reference/error-codes/',
+    '/support/faq/': '/reference/faq/',
+    '/hosting/command-line/': '/hosting/configuration/',
+    '/hosting/startup-messages/': '/hosting/troubleshooting/',
+    '/hosting/running/': '/hosting/quick-start/',
+  }),
   integrations: [
     starlight({
       title: 'NodeMP',
@@ -111,72 +121,59 @@ export default defineConfig({
           // The mark in the bar goes to nodemp.com, so the docs' own front page is here.
           { slug: 'index', label: 'All sections', translations: { ru: 'Все разделы' } },
           { slug: 'introduction/what-is-nodemp' },
-          { slug: 'introduction/differences-from-beammp' },
-          { label: 'How it works', translations: { ru: 'Как это устроено' }, collapsed: true, items: [
-            { slug: 'framework/overview' },
-            { slug: 'framework/sync' },
-          ]},
         ]},
         { label: 'Players', translations: { ru: 'Игрокам' }, items: [
           { slug: 'players/install' },
           { slug: 'players/sign-in' },
           { slug: 'players/join' },
           { slug: 'players/settings' },
+          { slug: 'players/connection' },
+          { slug: 'players/troubleshooting' },
         ]},
-        { label: 'Support', translations: { ru: 'Поддержка' }, items: [
-          { slug: 'support/troubleshooting' },
-          { slug: 'support/joining' },
-          { slug: 'support/strict-servers' },
-          { slug: 'support/launcher' },
-          { slug: 'support/logs' },
-          { slug: 'support/error-codes' },
-          { slug: 'support/faq' },
-        ]},
-        { label: 'Server hosting', translations: { ru: 'Хостинг сервера' }, items: [
+        { label: 'Hosting a server', translations: { ru: 'Свой сервер' }, items: [
           { slug: 'hosting/quick-start' },
-          { label: 'Running', translations: { ru: 'Запуск и работа' }, items: [
-            { slug: 'hosting/running' },
-            { slug: 'hosting/administration' },
-            { slug: 'hosting/updating' },
-            { slug: 'hosting/startup-messages' },
-          ]},
-          { label: 'Configuration', translations: { ru: 'Настройка' }, items: [
-            { slug: 'hosting/configuration' },
-            { slug: 'hosting/command-line' },
-            { slug: 'hosting/registering' },
-            { slug: 'hosting/strict-verification' },
-          ]},
+          { slug: 'hosting/windows' },
+          { slug: 'hosting/linux' },
+          { slug: 'hosting/docker' },
+          { slug: 'hosting/configuration' },
+          { slug: 'hosting/registering' },
+          { slug: 'hosting/mods' },
           { slug: 'hosting/resources' },
+          { slug: 'hosting/administration' },
+          { slug: 'hosting/strict-verification' },
+          { slug: 'hosting/updating' },
+          { slug: 'hosting/troubleshooting' },
         ]},
         { label: 'Plugin development', translations: { ru: 'Разработка плагинов' }, items: [
-          { label: 'Start here', translations: { ru: 'С чего начать' }, items: [
-            { slug: 'plugins/overview' },
-            { slug: 'plugins/getting-started' },
+          { slug: 'plugins/overview' },
+          { slug: 'plugins/getting-started' },
+          { slug: 'plugins/resources' },
+          { label: 'Topics', translations: { ru: 'Темы' }, items: [
+            { slug: 'plugins/events' },
+            { slug: 'plugins/players-and-vehicles' },
+            { slug: 'plugins/chat' },
+            { slug: 'plugins/concurrency' },
+            { slug: 'plugins/storage' },
+            { slug: 'plugins/database' },
+            { slug: 'plugins/http' },
+            { slug: 'plugins/bus' },
+            { slug: 'plugins/client-scripting' },
             { slug: 'plugins/conventions' },
           ]},
-          { label: 'Resources and events', translations: { ru: 'Ресурсы и события' }, items: [
-            { slug: 'plugins/resources' },
-            { slug: 'plugins/events' },
-            { slug: 'plugins/concurrency' },
-          ]},
-          { label: 'Data and network', translations: { ru: 'Данные и сеть' }, items: [
-            { slug: 'plugins/database' },
-            { slug: 'plugins/protocol' },
-          ]},
-          { label: 'Client and native code', translations: { ru: 'Клиент и нативный код' }, items: [
-            { slug: 'plugins/client-scripting' },
+          { label: 'Other languages', translations: { ru: 'Другие языки' }, items: [
             { slug: 'plugins/native-modules' },
+            { slug: 'plugins/js-host' },
           ]},
-          { label: 'Practice', translations: { ru: 'Практика' }, items: [
-            { slug: 'plugins/recipes' },
-            // Label override: the page title names BeamMP; the global navigation does not.
-            { slug: 'plugins/migrating', label: 'Migrating plugins', translations: { ru: 'Перенос плагинов' } },
-          ]},
+          { slug: 'plugins/examples' },
+          { slug: 'plugins/migrating' },
           // Generated by scripts/import-api.mjs from sdk/api.toml; never edited by hand.
           { label: 'API reference', translations: { ru: 'Справочник API' }, collapsed: true, items: [{ autogenerate: { directory: 'plugins/api' } }] },
         ]},
         { label: 'Reference', translations: { ru: 'Справочник' }, items: [
+          { slug: 'reference/error-codes' },
+          { slug: 'reference/faq' },
           { slug: 'reference/glossary' },
+          { slug: 'reference/protocol' },
         ]},
       ],
     }),

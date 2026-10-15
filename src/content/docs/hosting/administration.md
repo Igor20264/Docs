@@ -1,16 +1,54 @@
 ---
-title: "Administration"
-description: "Bans, logs, why a player was refused and what to back up."
+title: Console, kicks and bans
+description: The server console's commands, kicking and banning players, lifting a ban, restarting with a warning, and what to look for in the log.
 ---
 
-## Bans
+## The console
 
-Bans live in `bans.json` in the working directory. The file does not exist until the first ban;
-the server reads it once - at the first ban check or ban after a start - keeps the list in memory
-from then on and writes it back after every new ban. It is one JSON object
-whose keys are the banned IP address (`"203.0.113.7"`, or an IPv6 address without brackets) or
-the NodeMP account as `"nodemp:<account id>"`, and whose values carry the reason the player is
-shown, the time and the name at the time:
+A server started in a terminal takes commands right in its window. On Windows that's the
+`Node-Server.exe` window, on Linux the terminal you started it from.
+
+| Command | What it does |
+|---|---|
+| `help` | Lists the commands. |
+| `status` | Version, uptime, players, cars, resources, memory. |
+| `players` | Everyone on the server: id, name, ping, cars and address (with its last part hidden). |
+| `kick <id\|name> [reason]` | Disconnects a player, who sees the reason. A name with spaces goes in quotes. |
+| `say <text>` | A system line in every player's chat. |
+| `reload <resource>` | Runs a resource again. |
+| `stop` | Stops the server. `exit` and `quit` do the same. |
+
+Without a reason, a kicked player sees `Kicked by the server`. Players can't reach the console: a
+`/kick 1` typed in chat is an ordinary chat line. It becomes a command only if a resource takes it
+as one.
+
+Under systemd and in Docker without a terminal, the console is off. The [Linux](/hosting/linux/#a-systemd-service)
+and [Docker](/hosting/docker/#the-console) pages say how to turn it on.
+
+### The chat in the console
+
+The console shows the chat as players write, with each player's id:
+
+```
+17:51:12.345  Chat   › (0) Alice: hello
+17:51:16.000  Chat   › System -> all: Restart in 5 minutes  [console]
+```
+
+A line that wasn't sent says why, and a line a resource took as its command is marked
+`[handled by a resource]`. The arguments of commands that take a password (`/login`, `/register` and
+the others in `[chat] masked_commands`) show as `***`. `[chat] log = false` keeps the chat
+out of the console and the log.
+
+## Kicks and bans
+
+Kicking is the console command above. There is no ban command in the console: bans come from
+resources, such as a `/ban` command for moderators ([example](/plugins/chat/#commands-for-moderators)).
+
+### Bans
+
+Bans are kept in `bans.json` in the working directory. It's one JSON object: each key is a banned
+address or a NodeMP account as `nodemp:<id>`, and each value holds the reason, the time and the
+player's name:
 
 ```json
 {
@@ -19,13 +57,14 @@ shown, the time and the name at the time:
 }
 ```
 
-A ban placed on a connected player through `node.bans.add(player)` or `player:ban()` writes two
-entries, the address and the account; a ban on a bare address or account id writes one. A player
-whose address or account is in the file is refused at the door with the stored reason, or with
-`You are banned from this server` when the reason is empty. The start-up log counts what it
-loaded: `2 banned IPs and 1 banned account loaded from bans.json`.
+A timed ban also has `"until"`, the moment it ends in Unix seconds. When it comes, the server lifts
+the ban by itself.
 
-To lift a ban, **stop the server** and use the built-in tool on the same file:
+Banning a player who is on the server bans their address and, if they're signed in, their account,
+so the ban follows them to another network. A banned player trying to join sees the reason, or
+`You are banned from this server` when there is none.
+
+To lift a ban, **stop the server** and run:
 
 ```
 Node-Server --bans list
@@ -33,76 +72,44 @@ Node-Server --bans remove 203.0.113.7
 Node-Server --bans remove nodemp:108
 ```
 
-`list` prints every entry with its key, date, name and reason (`no bans in …` when the file does
-not exist yet); `remove` takes an IP address, an account as `nodemp:<id>` or a bare account id,
-removes it and says how many bans are left. `--working-directory=` is honoured, `server.toml` is
-not read. Editing the JSON by hand with the server stopped does the same. Editing it while the
-server runs does not work - the server keeps the list in memory and writes the old list back on
-its next ban, which is why every line the tool prints says to stop the server first. A resource
-can also lift a ban at run time with `node.bans.remove(who)`; the `/unban` command of the
-[moderation recipe](/plugins/recipes/#kick-and-ban-with-a-reason) is that in eight lines, and
-needs the `chat` resource. (Before 1.2.1 there was no `--bans`; the hand edit was the only way.)
+`list` shows every ban, `remove` lifts one: by address, by `nodemp:<id>` or by a bare account
+number. Editing the file by hand works too, also with the server stopped. A running server keeps the
+list in memory and overwrites the file on the next ban.
 
-## Logs
+## Restarting with a warning
 
-Everything the server prints also goes to `logs/server.log` without the colour codes. At every
-start the previous file is moved to `logs/server.old.log`, so exactly one older run is kept. Each
-line is `time  tag › message`, the tag being `Core`, `Net`, `Res`, `Mods`, `Join`, `Leave`,
-`Kick`, `Warn`, `Error` and so on. `[General] Debug = true` (or `NODE_DEBUG=true`) adds the debug
-lines and millisecond timestamps; `NODE_FORCE_ANSI=1` keeps the colours when the output is not a
-terminal.
+`stop` sends everyone away at once. To warn players first, a resource schedules the stop:
+`node.server.shutdown("Nightly restart", 5 * 60 * 1000)` stops the server in five minutes. Players
+see that reason, resources save their data and the server exits with code 0. A systemd service with
+`Restart=always` or a container with `restart: unless-stopped` starts it again, so this is a
+restart. [Timers and coroutines](/plugins/concurrency/#a-restart-with-a-countdown) has an example
+with a countdown in chat.
 
-Lines worth knowing at a glance:
+## The log
 
-- `server is ready` — every subsystem started.
-- `TLS 1.3 enabled — certificate fingerprint (SHA-256): …` — the identity launchers pin.
-- `announcing this server to https://api.nodemp.com`, then `listed in the server browser` — the
-  directory accepted the key. Only the second line means listed.
-- `client obfuscation ready · runner lua5.1 · Prometheus (cache .obfcache)` — client scripts
-  will be obfuscated; a `Warn` instead names what is missing.
-- `startup not successful, systems [Directory] had errors — this may or may not cause issues` —
-  one subsystem failed; the lines above it say which and why.
-- `Cannot listen on port 30814 (udp): the port is already in use (…). Usually another Node-Server is still running on this machine -- a previous instance that was not stopped, or a second copy started by mistake -- or another program owns the port. Stop it, or give this server a different port with [General] Port in server.toml or --port=<number>. Closing.`
-  — **the port is taken** (the parentheses carry the operating system's own words; the second
-  half of the port fails a line later with `Cannot listen on port 30814 (tcp) either: …`). The
-  server stops itself: no `server is ready`, `Shutdown.`, `Closing in 10 seconds`, exit code 1 -
-  a supervisor sees a failure, not a clean stop. Stop the other instance (or change
-  `[General] Port` / `--port=`) and start again. On Windows a second instance can no longer bind
-  the TCP port beside a running one. (Before 1.2.1 the line was the bare `bind() failed: …`, and
-  the server went on for a few seconds - it could still print `listening on …` and even
-  `server is ready` - before it shut itself down with exit code 0.)
-- `[General] IP = "…" is not an IP address (…); the server cannot listen. Leave it at "::" to listen on every interface, or give the address of one of this machine's interfaces. Closing.`
-  — the same exit, code 1, for a bind address that does not parse.
-- `Kick › <name> kicked — <reason>` — the server refused or ended a player's session; the reason
-  is the text the player quotes to you (see [When a player is refused](#when-a-player-is-refused)).
+Everything the server prints also goes to `logs/server.log`. A new file starts at every start and
+when the old one grows past 50 MB. Five old ones are kept as `server.1.log`, `server.2.log` and so on
+(`[logs] max_size_mb`, `keep`).
 
-## When a player is refused
+Lines worth knowing:
 
-A player who cannot join quotes the launcher's notification; [Error codes](/support/error-codes/) lists every text
-with its meaning. On your side:
-
-- The server logs every refusal and kick under the `Kick` tag as `<name> kicked — <reason>`
-  (`connection from 203.0.113.5 refused (banned: Spamming)` for a ban at the door), so
-  `logs/server.log` says whom it refused and why, in the same words the player saw.
-- `Invalid mod "…"`, `Failed to verify "…"`, `Server cannot find …`: a zip in `content/` is broken,
-  was replaced while the server ran, or is missing. Look at the content lines of the start-up log
-  (`serving 2 mods (148.3 MB) from content/`, `'…' is not a ZIP file and will be ignored`), fix or
-  remove the file and restart - the folder is indexed at start only.
-- `Connection refused` with no reason: a resource denied `playerConnectRequest` without giving
-  one. The resource's own log lines (its name is the tag) say which; the server does not.
-- `You are banned from this server` or a ban reason: the entry is in `bans.json`,
-  [above](#bans).
-- Anything about game files or the reference manifest: the `VerifyGame` level you set; the
-  player's side is on [Troubleshooting → Strict servers](/support/strict-servers/),
-  yours on [Strict verification](/hosting/strict-verification/).
-
-## What to back up
-
-| Keep | Why |
+| Line | What it means |
 |---|---|
-| `server.toml` | Your settings. Not needed for the env-only Docker setup; keep the Compose and `.env` files instead. |
-| `node_cert.pem`, `node_key.pem` (`data/tls/` in Docker) | The fingerprint launchers and the directory know your server by. A new pair means a new identity. |
-| `resources/`, `content/` | Your add-ons. |
-| `storage/`, `bans.json` | Data your resources wrote, and your bans. |
+| `server is ready` | The server started completely. |
+| `started, but … failed — what they do may not work` | A part didn't start. The lines above say why. |
+| `listed in the server browser` | The server is in the list ([Get listed](/hosting/registering/)). |
+| `<name> kicked — <reason>` | The server refused a player or ended their session, in the words the player saw. |
+| `netstats id=… rtt=… loss=…` | Every 15 seconds for each player: ping, traffic, losses. Useful when a player says it lags. |
 
-`logs/`, `.obfcache/` and `content/mods.json` are regenerated and need no backup.
+## A player can't get in
+
+The player usually sends you the launcher's message. Every message is on
+[Error messages](/reference/error-codes/). What to check on your side:
+
+- The log has every refusal and kick under the `Kick` tag, in the words the player saw.
+- `Connection refused` with nothing else: a resource turned the player away without a reason. Look
+  for lines with that resource's name.
+- A ban: the entry is in `bans.json`, [see above](#bans).
+- Anything about game files: the `[integrity] verify` level ([Strict file check](/hosting/strict-verification/)).
+- Several players from one place can't get in: see
+  [When the server misbehaves](/hosting/troubleshooting/#players-are-refused-at-the-door).

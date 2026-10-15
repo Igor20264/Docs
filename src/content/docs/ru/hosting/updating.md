@@ -1,137 +1,181 @@
 ---
-title: Обновление
-description: Проверка версии, замена бинарника или обновление образа, сохранение server.toml и TLS-файлов и что смена протокола значит для игроков.
+title: Обновление сервера
+description: Как узнать версию, поставить новый релиз на Windows, Linux и в Docker, что переживает обновление и когда игрокам нужен новый лаунчер.
 ---
 
-Обновление заменяет исполняемый файл с его папкой `tools/` или образ контейнера. Всё остальное —
-`server.toml`, TLS-файлы, ресурсы, контент, хранилище, блокировки — это данные рядом с ним, и они
-остаются.
+Обновление заменяет программу и папки, которые идут вместе с ней (`tools/`, `modules/`,
+`examples/`), или Docker-образ. Всё остальное — ваши данные, они остаются: `server.toml`,
+TLS-сертификат, ресурсы, моды, хранилище, баны.
 
-## Проверка версии
+## Какая версия сейчас
 
 ```bash
 ./Node-Server --version
 ```
 
-печатает `Node-Server v1.5.0`. Стартовый баннер показывает то же число в строке `version`, а
-сервер из списка сообщает его директории в каждом маяке.
+Команда печатает, например, `Node-Server v1.9.1`. Та же версия видна в заставке при запуске.
 
-## Где лежат релизы
+## Где брать релизы
 
-Релизы сервера — теги `server-v*` на
-[github.com/NodeMP-BeamNG/releases](https://github.com/NodeMP-BeamNG/releases). Каждый содержит
-два архива, названных по версии (`Node-Server-1.5.0-linux-x64.tar.gz`,
-`Node-Server-1.5.0-windows-x64.zip`) и их файлы `.sha256`, а его описание содержит заметки о
-релизе (раздел `RELEASE_NOTES.md` репозитория сервера для этого тега): что изменилось, менялось ли
-значение по умолчанию и двигался ли сетевой протокол. У релизов до 1.2.1 описание — одно
-предложение. Эти страницы описывают текущий релиз; [таблица версий](/ru/introduction/what-is-nodemp/#версии)
-говорит, какие сервер, лаунчер и клиентский мод идут вместе и на каком сетевом протоколе говорят,
-а возможность, пришедшая с более ранним релизом, помечена там, где описана
-(`добавлена в сервере 1.2.0`). Docker-образ той же сборки несёт тег с `v`
-(`ghcr.io/nodemp-beamng/server:v1.5.0`); `latest` следует за новейшей сборкой ветки main и может
-опережать последний релиз — закрепляйте тег версии.
+Релизы сервера — это теги `server-v…` на
+[GitHub](https://github.com/NodeMP-BeamNG/releases/releases). В описании каждого релиза — что
+изменилось, поменялись ли значения по умолчанию и нужен ли игрокам новый лаунчер. Прочитайте его до
+обновления.
 
-## Бинарник
+## Windows
 
-Linux, с раскладкой из [быстрого старта](/ru/hosting/quick-start/) и unit systemd из раздела
-[Запуск сервера](/ru/hosting/running/):
+1. Остановите сервер.
+2. Скачайте новый архив и распакуйте его в ту же папку поверх старых файлов. Проводник спросит про
+   замену — соглашайтесь.
+3. Запустите сервер и проверьте версию в заставке.
+
+Из PowerShell распаковать с заменой можно так:
+
+```powershell
+$zip = "$HOME\Downloads\Node-Server-1.9.1-windows-x64.zip"
+Expand-Archive $zip -DestinationPath C:\NodeMP -Force
+```
+
+Без `-Force` команда откажется перезаписывать файлы.
+
+## Linux
+
+Со службой из страницы [Сервер на Linux](/ru/hosting/linux/#служба-systemd):
 
 ```bash
 cd /tmp
-curl -LO https://github.com/NodeMP-BeamNG/releases/releases/download/server-v1.5.0/Node-Server-1.5.0-linux-x64.tar.gz
-curl -LO https://github.com/NodeMP-BeamNG/releases/releases/download/server-v1.5.0/Node-Server-1.5.0-linux-x64.tar.gz.sha256
-sha256sum -c Node-Server-1.5.0-linux-x64.tar.gz.sha256
-sudo systemctl stop nodemp-server
-sudo tar -xzf Node-Server-1.5.0-linux-x64.tar.gz -C /opt/nodemp
+url=https://github.com/NodeMP-BeamNG/releases/releases/download/server-v1.9.1
+curl -LO "$url/Node-Server-1.9.1-linux-x64.tar.gz"
+curl -LO "$url/Node-Server-1.9.1-linux-x64.tar.gz.sha256"
+sha256sum -c Node-Server-1.9.1-linux-x64.tar.gz.sha256
+```
+
+Затем остановите службу, распакуйте архив поверх и запустите снова:
+
+```bash
+sudo systemctl stop nodemp
+sudo tar -xzf Node-Server-1.9.1-linux-x64.tar.gz -C /opt/nodemp
 sudo chown -R nodemp:nodemp /opt/nodemp
-sudo systemctl start nodemp-server
-/opt/nodemp/Node-Server --version
+sudo systemctl start nodemp
 ```
 
-Архив содержит `Node-Server`, `tools/`, `examples/` и `EXAMPLES_COMMIT`; распаковка поверх папки
-заменяет ровно их и не трогает ничего другого — `resources/`, где живут ваши копии примеров, в
-архиве нет. Подставьте в имена файлов версию релиза, который устанавливаете.
-
-Windows, с раскладкой из быстрого старта: остановите сервер, затем в PowerShell
-
-```powershell
-Set-Location C:\NodeMP
-Invoke-WebRequest https://github.com/NodeMP-BeamNG/releases/releases/download/server-v1.5.0/Node-Server-1.5.0-windows-x64.zip -OutFile Node-Server-1.5.0-windows-x64.zip
-Invoke-WebRequest https://github.com/NodeMP-BeamNG/releases/releases/download/server-v1.5.0/Node-Server-1.5.0-windows-x64.zip.sha256 -OutFile Node-Server-1.5.0-windows-x64.zip.sha256
-(Get-FileHash Node-Server-1.5.0-windows-x64.zip).Hash.ToLower() -eq (Get-Content Node-Server-1.5.0-windows-x64.zip.sha256).Split(' ')[0]
-Expand-Archive Node-Server-1.5.0-windows-x64.zip -DestinationPath . -Force
-.\Node-Server.exe --version
-```
-
-`-Force` — то, чего не хватает команде из быстрого старта: без него `Expand-Archive`
-отказывается перезаписать существующие `Node-Server.exe` и `tools\` (`… already exists. Use the
--Force parameter`). Всё остальное в папке остаётся.
+Распаковка поверх заменяет ровно то, что есть в архиве. Ваша папка `resources/`, в том числе копии
+примеров, в архив не входит и не трогается.
 
 ## Docker
 
-Измените тег в файле Compose, затем:
+Загрузите новый образ и укажите его тег:
 
 ```bash
-docker compose pull gameserver
-docker compose up -d gameserver
-docker compose logs -f gameserver
+docker load -i nodemp-server-v1.9.1-image.tar
 ```
 
-С `image: ghcr.io/nodemp-beamng/server:latest` те же две команды переводят на новейшую сборку
-ветки main, которая может опережать последний релиз — закрепляйте тег версии. Том `/data` не
-затрагивается. Чтобы откатиться, верните в файл предыдущий тег и выполните те же
-команды.
+В `compose.yaml` поменяйте строку `image:` на новый тег и выполните `docker compose up -d`. С
+`docker run` удалите старый контейнер и запустите новый с тем же `-v` и теми же переменными. Папка
+`data/` не меняется. Чтобы откатиться, верните прежний тег.
 
 ## Что переживает обновление
 
-- **`server.toml`** новая версия читает и перезаписывает при первом запуске. Ключи, которые
-  новая версия добавила, появляются со значениями по умолчанию; ключи, которых у неё больше нет,
-  удаляются; ваши значения остаются. Файл не показывает, какой ключ новый: сравните его с
-  [таблицей справочника](/ru/hosting/configuration/#справочник), которая всегда описывает текущий
-  релиз (ключ, пришедший с релизом, помечен там его версией). У Docker-образа только на
-  переменных файла нет: новый ключ просто берёт значение по умолчанию, пока вы не задали его
-  переменную.
-- **`node_cert.pem` и `node_key.pem`** в архив не входят и создаются только при отсутствии.
-  Берегите их: по их отпечатку директория и каждый лаунчер узнают ваш сервер, а игроки,
-  подключавшиеся через Direct Connect, закрепили его. Сервер, вернувшийся с новым сертификатом,
-  эти лаунчеры отклоняют с сообщением `server certificate fingerprint mismatch`, пока не сбросят
-  закрепление; серверам из списка новый отпечаток записывает проверка директории в течение пары
-  минут.
-- **`resources/`, `content/`, `storage/`, `bans.json`** — ваши, и их никто не трогает.
-- **`integrity/`** — эталонный манифест строгого сервера — тоже ваш. Он привязан к версии игры, а
-  не к версии сервера: обновление сервера его не трогает, обновление **BeamNG** делает его
-  устаревшим, и тогда вы генерируете его заново
-  ([Строгая проверка](/ru/hosting/strict-verification/#после-обновления-игры)). 1.1.0 добавляет
-  ключ `[General] IntegrityDir`, который появляется в `server.toml` со значением по умолчанию
-  `"integrity"` после первого запуска.
-- **`.obfcache/`** привязан к ревизии обфускатора, поэтому новая сборка перестраивает его по
-  мере необходимости. Удалять его всегда безопасно.
-- **Нативные модули** в `modules/` при загрузке сверяются с ABI плагинов сервера. Модуль,
-  собранный под другую мажорную версию ABI, отклоняется с сообщением
-  `module 'js-host' was built against SDK ABI 1.0, this server speaks 2.3 -- refusing to load it. Rebuild the module.`
-  (числа — реальные значения) и требует пересборки; ресурсы на языке, который даёт такой
-  модуль, тогда не загружаются. Ресурсам на Lua пересборка не нужна, но после мажорного
-  обновления проверьте их заново.
+- **`server.toml`** остаётся как есть. Новая настройка из новой версии берёт значение по умолчанию,
+  пока вы не впишете её в файл, — сам сервер её не дописывает. В Docker файла нет: новая настройка
+  берёт значение по умолчанию, пока вы не зададите её переменную. Единственное исключение — переход
+  на 1.9.0, о нём ниже.
+- **`node_cert.pem` и `node_key.pem`** в архив не входят и создаются, только если их нет. Берегите
+  их: игроки, заходившие по адресу, запомнили сертификат и не подключатся к серверу с другим.
+- **`resources/`, `content/`, `storage/`, `bans.json`** — ваши, обновление их не трогает. Если ваш
+  ресурс использует `db.lua` модуля базы данных, скопируйте в него новый `modules/db.lua`.
+- **`integrity/`** привязан к версии игры, а не сервера. После обновления BeamNG его нужно сделать
+  заново ([Строгая проверка](/ru/hosting/strict-verification/#после-обновления-игры)).
+- **Нативные модули** в `modules/` проверяются при загрузке. Модуль, собранный под несовместимую
+  версию интерфейса, сервер не загрузит и попросит пересобрать. Lua-ресурсы пересобирать не нужно.
 
-Возврат к старой версии работает так же в обратную сторону: она игнорирует незнакомые ключи и
-перезаписывает файл без них.
+Начиная с сервера 1.8.0 у сервера нет своих команд чата, их добавляют ресурсы. Ресурс, который
+вызывал `node.commands`, упадёт на этой строке с ошибкой `attempt to index a nil value (field
+'commands')`. Обновите его или возьмите за основу `examples/chat-commands`
+([Чат и команды](/ru/plugins/chat/)).
 
-## Версии протокола
+## Настройки с 1.9.0
 
-Лаунчер и сервер говорят на версионированном сетевом протоколе: **`v23` начиная с сервера 1.5.0**,
-который идёт вместе с лаунчером 1.1.18 и клиентским модом 1.6.19. 1.1.0 подняла его с `v17` до `v18`
-ради строгой проверки установки, 1.1.1, 1.2.0 и 1.2.1 оставили `v18`; 1.3.0 перевёл его на `v21`
-(пакетирование позиций, синхронизированный граббер узлов и триггеры карты как пакеты ядра, огонь
-машины и настройка «кто может сесть» как кадры), а 1.4.0 — на `v22` (отказ сообщает причину: текст вердикта
-на посадку и `Vehicle::EditDeny`); 1.5.0 — на `v23` (собственное ускорение отправителя едет
-в снимке позиции, 72 -> 78 байт, и прогнозу чужой машины больше не нужно дифференцировать
-два шумных пакета), поэтому сервер 1.4.x и лаунчер 1.1.18 отказывают
-друг другу в обе стороны — обновляйте сервер в то же окно, когда игроки получают лаунчер.
-Когда релиз меняет его, лаунчер старой версии отклоняется на рукопожатии с сообщением
-`Protocol version mismatch: launcher speaks v22, server speaks v23 - update the outdated side`
-(два числа — реальные значения). Игроки исправляют это, установив текущий лаунчер с
-[nodemp.com/download](https://nodemp.com/download); клиентский мод лаунчер обновляет сам перед
-каждым подключением, а сам себя — нет. Как хост, обновите сервер вскоре после такого релиза, ведь
-игроки уже на новом лаунчере. Менял ли релиз протокол, сказано в его заметках о релизе, здесь и в
-[таблице версий](/ru/introduction/what-is-nodemp/#версии): релиз сервера, сохраняющий протокол
-(1.1.1, 1.2.0, 1.2.1, 1.4.1), не требует от ваших игроков обновлять лаунчер; тот, что двигает его (1.3.0, 1.4.0), — требует.
+Начиная с сервера 1.9.0 у `server.toml` новый вид: ключи строчными буквами, а таблицы названы по тому, что
+они настраивают. Переделывать файл вручную не нужно.
+
+- При первом запуске 1.9.0 сервер переписывает файл старого вида в новый с теми же настройками, а
+  старый оставляет рядом как `server.toml.old`. В логе будет строка
+  `server.toml was in the legacy layout: rewritten in the new one with the same settings`.
+- В новом файле есть `[server]` и `[listing]`, как в только что созданном, и все остальные
+  настройки, значение которых отличалось от значения по умолчанию. Ключ, который сервер не читает,
+  не переносится, и лог его называет.
+- Переменные `NODE_*` остались прежними, так что сервер, настроенный через них, в том числе
+  Docker-образ, ничего не заметит.
+- Если сервер не может записать новый файл, он сообщит об этом в логе и прочитает старый как есть.
+
+В старых инструкциях попадаются старые имена. Пишите новые: таблица со старым именем в новом файле
+сработает, но сервер тогда переведёт файл ещё раз, выбросит ваши комментарии в нём и заменит
+`server.toml.old`. Куда переехал каждый ключ:
+
+| До 1.9.0 | С 1.9.0 |
+|---|---|
+| `[General] Name` | `[server] name` |
+| `[General] Port` | `[server] port` |
+| `[General] MaxPlayers` | `[server] max_players` |
+| `[General] MaxCars` | `[server] cars_per_player` |
+| `[General] Map` | `[server] map` |
+| `[Content] Folder` | `[server] mods` |
+| `[General] IP` | `[server] address` |
+| `[General] Console` | `[server] console` |
+| `[Directory] Url` | `[listing] url` |
+| `[Directory] HostId` | `[listing] host_id` |
+| `[Directory] HostSecret` | `[listing] host_secret` |
+| `[Directory] Description` | `[listing] description` |
+| `[Directory] Mode` | `[listing] mode` |
+| `[Directory] Tags` | `[listing] tags` |
+| `[Directory] Preview` | `[listing] preview` |
+| `[Directory] Public` | `[listing] public` |
+| `[Directory] TestDrive` | `[listing] guests` |
+| `[Directory] Fingerprint` | `[listing] fingerprint` |
+| `[Directory] CaFile` | `[listing] ca_file` |
+| `[Directory] RedeemFailOpen` | `[listing] admit_when_down` |
+| `[Directory] AllowInsecure` | `[listing] allow_http` |
+| `[General] VerifyGame` | `[integrity] verify` |
+| `[General] IntegrityDir` | `[integrity] manifests` |
+| `[Network] TlsCert` | `[network] tls_cert` |
+| `[Network] TlsKey` | `[network] tls_key` |
+| `[Network] StateRelayRadius` | `[network] relay_radius` |
+| `[Network] LagGraceSec` | `[network] lag_grace_sec` |
+| `[Network] AuthTakeoverSec` | `[network] seat_takeover_sec` |
+| `[Network] AuthReleaseSec` | `[network] seat_release_sec` |
+| `[Network] DisconnectSec` | `[network] disconnect_sec` |
+| `[Network] SendQueueBudgetMB` | `[network] send_queue_budget_mb` |
+| `[Network] MaxConnectionsPerIp` | `[network] max_connections_per_ip` |
+| `[Network] MaxConnections` | `[network] max_connections` |
+| `[Network] ConnectionLimitExempt` | `[network] connection_limit_exempt` |
+| `[Network] HandshakeTimeoutSec` | `[network] handshake_timeout_sec` |
+| `[Network] DownloadStallSec` | `[network] download_stall_sec` |
+| `[Chat] MaxLength` | `[chat] max_length` |
+| `[Chat] RatePerSec` | `[chat] rate_per_sec` |
+| `[Chat] Burst` | `[chat] burst` |
+| `[Chat] LogToConsole` | `[chat] log` |
+| `[Chat] LogHiddenCommands` | `[chat] masked_commands` |
+| `[General] Debug` | `[logs] debug` |
+| `[Log] MaxSizeMB` | `[logs] max_size_mb` |
+| `[Log] Keep` | `[logs] keep` |
+| `[Log] Date` | `[logs] date` |
+| `[Network] StatsIntervalSec` | `[logs] netstats_sec` |
+| `[Sync] Variant` | `[sync] variant` |
+| `[Sync] HoldTight` | `[sync] hold_tight` |
+| `[Sync] SteerLead` | `[sync] steer_lead` |
+| `[Sync] VerboseTrace` | `[sync] verbose_trace` |
+| `[Sync] TraceRate` | `[sync] trace_rate` |
+| `[Http] CaFile` | `[http] ca_file` |
+| `[Http] Insecure` | `[http] insecure` |
+| `[Http] AllowPrivateNetworks` | `[http] allow_private_networks` |
+| `[Resources] Obfuscate` | `[resources] obfuscate` |
+| `[Experimental] NodeGrab` | `[experimental] node_grab` |
+
+## Когда игрокам нужен новый лаунчер
+
+Лаунчер и сервер говорят по протоколу с номером версии. Сервер 1.9.1 говорит на v23, как и
+предыдущие версии: лаунчеры с версии 1.1.23 и клиентские моды с версии 1.6.25 заходят на него как
+раньше. Если релиз меняет протокол, в его описании это выделено, а старый лаунчер получает отказ с
+просьбой обновиться. Лаунчер сам предлагает **Обновить сейчас**, а клиентский мод обновляется перед
+каждым входом. Обновляйте сервер тогда же, когда игрокам приходит новый лаунчер.
