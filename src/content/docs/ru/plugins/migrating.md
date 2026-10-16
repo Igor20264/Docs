@@ -54,7 +54,8 @@ description: Для авторов плагинов BeamMP и KissMP — как 
 | `MP.IsPlayerGuest`, `MP.GetPlayerIdentifiers` | `player.guest`, `player.accountId`, `player.identifiers` |
 | `MP.TriggerClientEvent` | `player:send(name, data)` или `node.broadcast` |
 | `MP.TriggerGlobalEvent` | `node.bus.call` — он возвращает то, что вернули обработчики, или `node.bus.emit`, если отвечать никому не нужно ([Шина](/ru/plugins/bus/#вопрос-и-ответ)) |
-| `MP.CreateEventTimer`, `MP.CancelEventTimer` | `node.every(ms, fn)`, `node.cancel(id)` |
+| `MP.CreateEventTimer`, `MP.CancelEventTimer` | `node.every(ms, fn)`, `node.cancel(id)`; `CallStrategy.Precise` — это `node.every(ms, fn, { precise = true })` |
+| `onConsoleInput` | `node.console.command(name, fn)` или событие `consoleInput` для целых строк |
 | `MP.Sleep` | `node.sleep(ms)` внутри `node.async`, без блокировки |
 | `MP.GetPlayerVehicles`, `MP.RemoveVehicle` | `player:vehicles()`, `vehicle:delete()` |
 | `MP.GetPositionRaw` | `vehicle:transform()` или `node.vehicles.transforms()` для всех машин |
@@ -147,6 +148,11 @@ main = "main.lua"
 - `MP.SendChatMessage` показывает строку как системную.
 - `MP.Sleep` блокирует рабочий поток, а с ним и все ресурсы. Модуль один раз предупреждает об этом.
 - Идентификатор, который BeamMP называет `beammp`, — номер аккаунта игрока в NodeMP.
+- Плагину, как и любому ресурсу, доступна только своя папка
+  ([окружение Lua](/ru/plugins/resources/#окружение-lua)). Пути, которые он строит как
+  `Resources/Server/<плагин>/…` в `FS.*`, `io.open` и подобных, ведут в папку ресурса. Плагину,
+  который читает другие папки, запускает программы или читает переменные окружения, нужно, чтобы
+  хост вписал его в `[resources] trusted`.
 
 ### Чему нет замены
 

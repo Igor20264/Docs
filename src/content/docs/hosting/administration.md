@@ -18,6 +18,9 @@ A server started in a terminal takes commands right in its window. On Windows th
 | `reload <resource>` | Runs a resource again. |
 | `stop` | Stops the server. `exit` and `quit` do the same. |
 
+Resources can add commands of their own; `help` lists them under "from resources:", each with the
+resource it comes from. A word nobody takes is answered `unknown command, try help`.
+
 Without a reason, a kicked player sees `Kicked by the server`. Players can't reach the console: a
 `/kick 1` typed in chat is an ordinary chat line. It becomes a command only if a resource takes it
 as one.
@@ -87,9 +90,12 @@ with a countdown in chat.
 
 ## The log
 
-Everything the server prints also goes to `logs/server.log`. A new file starts at every start and
-when the old one grows past 50 MB. Five old ones are kept as `server.1.log`, `server.2.log` and so on
-(`[logs] max_size_mb`, `keep`).
+Everything the server prints also goes to `logs/server.log`, and the file has more. The console
+shows what you act on: joins and leaves, spawns, refusals, chat, warnings and errors. Statistics and
+housekeeping, such as the `netstats` lines, seat changes and failed connection attempts, go only to
+the file, unless `[logs] details = true` puts them on the console too. A new file starts at every
+start and when the old one grows past 50 MB. Five old ones are kept as `server.1.log`,
+`server.2.log` and so on (`[logs] max_size_mb`, `keep`).
 
 Lines worth knowing:
 
@@ -99,7 +105,7 @@ Lines worth knowing:
 | `started, but … failed — what they do may not work` | A part didn't start. The lines above say why. |
 | `listed in the server browser` | The server is in the list ([Get listed](/hosting/registering/)). |
 | `<name> kicked — <reason>` | The server refused a player or ended their session, in the words the player saw. |
-| `netstats id=… rtt=… loss=…` | Every 15 seconds for each player: ping, traffic, losses. Useful when a player says it lags. |
+| `netstats id=… rtt=… loss=…` | In the file, every 15 seconds for each player: ping, traffic, losses. Useful when a player says it lags. |
 
 ## A player can't get in
 

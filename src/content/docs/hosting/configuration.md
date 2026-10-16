@@ -46,7 +46,7 @@ guests = true  # players without a NodeMP account
   how a typo shows up. A table written twice stops the server from starting. Usually that's a
   second `[listing]` pasted under the one already in the file: move its keys into the first one and
   delete the second.
-- **Lists** (`connection_limit_exempt`, `masked_commands`) can be a comma-separated string or a TOML
+- **Lists** (`connection_limit_exempt`, `masked_commands`, `trusted`) can be a comma-separated string or a TOML
   list.
 - **A file from before 1.9.0** (`[General]`, `[Directory]` and the rest) is converted once, on the
   first start of 1.9.0. The server writes it in the new layout with the same settings and keeps the
@@ -173,6 +173,7 @@ In the order the server declares them. Strings are in quotes, as in the file.
 |---|---|---|---|---|---|
 | `[integrity]` | `verify` | string | `"size"` | `NODE_VERIFY_GAME` | How closely a player's game files are checked: `off`, `size`, `scripts`, `full` or `strict`. |
 | `[integrity]` | `manifests` | string | `"integrity"` | `NODE_INTEGRITY_DIR` | The folder with the reference manifests for `strict`. |
+| `[integrity]` | `recheck_sec` | int | `600` | `NODE_INTEGRITY_RECHECK_SEC` | Under `strict`, how many seconds apart each player's files are checked again during the session. `0`: never; anything under `60` counts as `60`. Since 1.12.0. |
 
 ### `[network]`
 
@@ -207,6 +208,7 @@ In the order the server declares them. Strings are in quotes, as in the file.
 | Section | Key | Type | Default | Environment | What it does |
 |---|---|---|---|---|---|
 | `[logs]` | `debug` | bool | `false` | `NODE_DEBUG` | Debug logging from every part of the server. |
+| `[logs]` | `details` | bool | `false` | `NODE_LOG_DETAILS` | Show on the console the statistics and housekeeping lines that otherwise go only to `logs/server.log`: `netstats`, seat changes, failed connection attempts. |
 | `[logs]` | `max_size_mb` | int | `50` | `NODE_LOG_MAX_SIZE_MB` | Start a new `server.log` once it grows past this many MB, and at every start. `0`: only at start. |
 | `[logs]` | `keep` | int | `5` | `NODE_LOG_KEEP` | How many old logs to keep. |
 | `[logs]` | `date` | bool | `false` | `NODE_LOG_DATE` | Put the date before the time on every line. |
@@ -235,6 +237,7 @@ In the order the server declares them. Strings are in quotes, as in the file.
 | Section | Key | Type | Default | Environment | What it does |
 |---|---|---|---|---|---|
 | `[resources]` | `obfuscate` | bool | `true` | `NODE_OBFUSCATE` | Obfuscate the client scripts of resources. `false` sends them as they are. |
+| `[resources]` | `trusted` | string | `""` | `NODE_RESOURCES_TRUSTED` | Resources whose Lua gets the whole standard library: files anywhere, programs, the environment. `"*"` trusts every one. Others reach only their own folder ([what a resource can do](/plugins/resources/#the-lua-environment)). |
 
 ### `[experimental]`
 
